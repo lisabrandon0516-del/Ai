@@ -62,11 +62,17 @@ def ceo_menu(
         if PRICE_INDEX_MIN <= nxt <= PRICE_INDEX_MAX:
             rows.append(Action(actor=actor, kind="set_chain_price_index", args={"delta": delta}))
     open_ok = _ready(chain, "opening", week) and big_call_ready(chain, week)
-    # A new door is paid from the drawer. Undrawn credit is not cash.
-    if open_ok:
+    # Cash pays what it can. A build draw covers the rest, and only when the
+    # line has room. The forecast drops the door unless its profit covers the coupon.
+    open_now = [store for store in chain.stores if store.status == "open"]
+    if open_ok and chain.cash >= 0:
+        room = max(0, chain.credit_line - chain.debt)
         for city in CITIES:
             cost = int((opening_costs or {}).get(city, opening_cost))
-            if cost <= 0 or chain.cash < cost:
+            if cost <= 0:
+                continue
+            draw = max(0, cost - chain.cash)
+            if draw > room:
                 continue
             here = [
                 store
@@ -79,13 +85,23 @@ def ceo_menu(
                 Action(
                     actor=actor,
                     kind="open_store",
-                    args={"city": city, "site_band": 2, "cost": cost},
+                    args={"city": city, "site_band": 2, "cost": cost, "draw": draw},
                 )
             )
+    closed = [store for store in chain.stores if store.status == "closed"]
+    if not open_now and closed:
+        store = closed[0]
+        rows.append(
+            Action(
+                actor=actor,
+                kind="reopen_store",
+                args={"store_id": store.id, "city": store.city},
+            )
+        )
     for store in chain.stores:
         if store.status != "open":
             continue
-        if big_call_ready(chain, week):
+        if big_call_ready(chain, week) and len(open_now) > 1:
             rows.append(
                 Action(
                     actor=actor,

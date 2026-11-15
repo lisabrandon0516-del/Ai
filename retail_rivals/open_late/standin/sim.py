@@ -175,10 +175,18 @@ def _apply_one(snap: Snapshot, action: Action) -> ActionResult:
         return ActionResult(action=action, accepted=True, note="ok")
     if kind == "open_store" and chain is not None:
         cost = int(action.args.get("cost", snap.opening_cost))
-        if cost <= 0 or chain.cash < cost or chain.status == "bankrupt":
+        draw = int(action.args.get("draw", 0))
+        if (
+            cost <= 0
+            or draw < 0
+            or chain.status == "bankrupt"
+            or chain.debt + draw > chain.credit_line
+            or chain.cash + draw < cost
+        ):
             return ActionResult(action=action, accepted=False, note="rejected: cash")
         city = str(action.args["city"])
-        chain.cash -= cost
+        chain.debt += draw
+        chain.cash += draw - cost
         existing = [store for store in chain.stores if store.city == city]
         store = RivalStore(
             id=f"store:{chain.chain_id}:{city}:{len(existing) + 1}",
@@ -199,6 +207,13 @@ def _apply_one(snap: Snapshot, action: Action) -> ActionResult:
         store = _store(chain, str(action.args.get("store_id", "")))
         if store is None or store.status != "open":
             return ActionResult(action=action, accepted=False, note="rejected: store")
+        still_open = [
+            other
+            for other in chain.stores
+            if other.status == "open" and other.id != store.id
+        ]
+        if not still_open:
+            return ActionResult(action=action, accepted=False, note="rejected: last store")
         store.status = "closed"
         stamp_cooldowns(chain, action, snap.week)
         return ActionResult(action=action, accepted=True, note="ok")
@@ -282,6 +297,21 @@ def _apply_one(snap: Snapshot, action: Action) -> ActionResult:
     if kind == "declare_distress" and chain is not None:
         chain.status = "distressed"
         return ActionResult(action=action, accepted=True, note="ok")
+    if kind == "reopen_store" and chain is not None:
+        store = _store(chain, str(action.args.get("store_id", "")))
+        if store is None or store.status != "closed" or chain.status == "bankrupt":
+            return ActionResult(action=action, accepted=False, note="rejected: store")
+        store.status = "open"
+        return ActionResult(action=action, accepted=True, note="ok")
+    if kind == "reenter" and chain is not None:
+        chain.status = "active"
+        chain.debt = 0
+        chain.cash = max(0, chain.cash)
+        chain.bankrupt_on = None
+        closed = [store for store in chain.stores if store.status == "closed"]
+        if closed and not any(store.status == "open" for store in chain.stores):
+            closed[0].status = "open"
+        return ActionResult(action=action, accepted=True, note="ok")
     if kind == "file_bankruptcy" and chain is not None:
         chain.status = "bankrupt"
         chain.bankrupt_on = snap.day
@@ -361,6 +391,7 @@ def _apply_one(snap: Snapshot, action: Action) -> ActionResult:
         "set_fair_schedule",
         "schedule_inspection",
         "set_bag_rule",
+        "clear_rule",
     }:
         _apply_town_rule(snap, action)
         return ActionResult(action=action, accepted=True, note="ok")

@@ -382,7 +382,7 @@ def _acting(snap: Snapshot) -> list[str]:
         if index >= count:
             break
         chain = snap.ai.chains.get(chain_id)
-        if chain is None or chain.status == "bankrupt":
+        if chain is None:
             continue
         chosen.append(chain_id)
     return chosen
@@ -453,11 +453,11 @@ def _door_counts(snap: Snapshot) -> dict[str, int]:
 
 
 def _market_stores(snap: Snapshot) -> list[dict]:
-    """Public doors every chain can see, including the other chains."""
-    return _shopper_stores(snap)
+    """Public doors every chain can see, including permits that are not open yet."""
+    return _shopper_stores(snap, include_building=True)
 
 
-def _shopper_stores(snap: Snapshot) -> list[dict]:
+def _shopper_stores(snap: Snapshot, *, include_building: bool = False) -> list[dict]:
     stores: list[dict] = []
     for row in snap.public.get("player_stores") or []:
         city = str(row.get("city"))
@@ -482,8 +482,9 @@ def _shopper_stores(snap: Snapshot) -> list[dict]:
     for chain_id, chain in sorted(snap.ai.chains.items()):
         if chain.status == "bankrupt":
             continue
+        visible = {"open", "building"} if include_building else {"open"}
         for store in chain.stores:
-            if store.status != "open":
+            if store.status not in visible:
                 continue
             stores.append(
                 {

@@ -31,6 +31,8 @@ def ceo_reason(chain_id: str, kind: str, args: dict) -> str:
         return reason(f"{name} filed to open a store in {city}.")
     if kind == "close_store":
         return reason(f"{name} will close its {city} door.")
+    if kind == "reopen_store":
+        return reason(f"{name} reopened its {city} door.")
     if kind == "remodel":
         return reason(f"{name} will remodel its {city} door.")
     if kind == "start_price_war":
@@ -67,6 +69,8 @@ def board_reason(chain_id: str, kind: str) -> str:
         return reason(f"{name} is distressed after four weeks below zero cash.")
     if kind == "file_bankruptcy":
         return reason(f"{name} filed for bankruptcy and is locked out.")
+    if kind == "reenter":
+        return reason(f"{name} came back after the lockout and reopened a door.")
     if kind == "approve_or_veto":
         return reason(f"The {name} board voted on a pending big call.")
     return reason(f"The {name} board met.")

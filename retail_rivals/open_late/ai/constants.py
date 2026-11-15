@@ -87,6 +87,11 @@ DIFFICULTIES: tuple[str, ...] = ("off", "calm", "standard", "stern")
 # How many of the six unused chains act. Off runs nothing.
 CHAIN_COUNTS: dict[str, int] = {"off": 0, "calm": 2, "standard": 3, "stern": 4}
 
+# A supercenter loan at the shop credit's 2% weekly coupon never pays for itself.
+# Build draws use an 8% annual rate and are taken only when the new door
+# covers that coupon. Distress still draws the same line.
+BUILD_WEEKLY_RATE = 0.08 / 52
+
 # Fixed iteration counts. Never wall-clock. Calm searches less, stern more.
 # The counts stay under the Sunday budget (150 ms mean, 400 ms worst).
 SEARCH_ITERS: dict[str, int] = {"off": 0, "calm": 8, "standard": 12, "stern": 16}

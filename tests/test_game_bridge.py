@@ -117,7 +117,7 @@ def test_a_broke_chain_cannot_open_on_credit():
     chain = next(iter(snap.ai.chains.values()))
     cost = city_opening_cost("seattle", snap.factors)
     chain.cash = cost - 1
-    chain.debt = 0
+    chain.debt = chain.credit_line
     action = Action(
         actor=ActorRef(kind="ceo", id=f"ceo:{chain.chain_id}"),
         kind="open_store",
@@ -126,7 +126,7 @@ def test_a_broke_chain_cannot_open_on_credit():
     )
     result = apply_actions(snap, [action])[0]
     assert result.accepted is False
-    assert chain.debt == 0
+    assert chain.debt == chain.credit_line
     people, _digest = load_personalities()
     person = people[chain.personality_id]
     chain.cooldowns = {}
@@ -223,6 +223,79 @@ def test_town_rule_changes_a_factor_the_forecast_reads():
     apply_actions(snap, [rules["houston"]])
     assert snap.factors["17:houston"] == 1
     assert traffic_mult(snap.factors, "houston") < before
+    later = town_actions(
+        seed=snap.seed, week=8, day=50, permits=[], factors=dict(snap.factors), doors=doors
+    )
+    cleared = [
+        action
+        for action in later
+        if action.kind == "clear_rule" and action.args.get("cities") == ["houston"]
+    ]
+    assert cleared and cleared[0].args["factor_id"] == 17
+    apply_actions(snap, cleared)
+    assert snap.factors["17:houston"] == 0
+
+
+def test_a_chain_cannot_close_its_only_store():
+    snap, _provider = make_snapshot(1, difficulty="calm")
+    assert snap.ai is not None
+    chain = next(iter(snap.ai.chains.values()))
+    store = chain.stores[0]
+    action = Action(
+        actor=ActorRef(kind="ceo", id=f"ceo:{chain.chain_id}"),
+        kind="close_store",
+        args={"store_id": store.id, "city": store.city},
+        reason="ValueMax will close its only door.",
+    )
+    result = apply_actions(snap, [action])[0]
+    assert result.accepted is False
+    assert store.status == "open"
+
+
+def test_a_storeless_chain_can_reopen():
+    snap, _provider = make_snapshot(1, difficulty="calm")
+    assert snap.ai is not None
+    chain = next(iter(snap.ai.chains.values()))
+    chain.stores[0].status = "closed"
+    people, _digest = load_personalities()
+    person = people[chain.personality_id]
+    chosen = choose_ceo_action(
+        chain,
+        person,
+        ActorMemory(actor_id=f"ceo:{chain.chain_id}"),
+        seed=1,
+        week=6,
+        difficulty="calm",
+        opening_cost=30_000_000,
+        wars={},
+        player_price={},
+    )
+    assert chosen.kind == "reopen_store"
+    apply_actions(snap, [chosen])
+    assert chain.stores[0].status == "open"
+
+
+def test_a_bankrupt_chain_returns_after_the_lockout():
+    snap, provider = make_snapshot(1, difficulty="calm")
+    assert snap.ai is not None
+    chain = next(iter(snap.ai.chains.values()))
+    chain.status = "bankrupt"
+    chain.bankrupt_on = 1
+    chain.debt = 2_000_000
+    chain.cash = -50_000
+    chain.stores[0].status = "closed"
+    person = snap.ai.personalities[chain.personality_id]
+    memory = ActorMemory(actor_id=f"board:{chain.chain_id}", counters={"filed": 1})
+    early = board_actions(chain, memory, person, seed=1, week=40, personalities=snap.ai.personalities)
+    assert all(action.kind != "reenter" for action in early)
+    late = board_actions(chain, memory, person, seed=1, week=53, personalities=snap.ai.personalities)
+    assert any(action.kind == "reenter" for action in late)
+    apply_actions(snap, late)
+    assert chain.status == "active"
+    assert chain.debt == 0
+    assert chain.cash == 0
+    assert chain.stores[0].status == "open"
+    del provider
 
 
 def test_discount_and_premium_do_not_move_alike():
@@ -301,7 +374,10 @@ def test_chains_do_not_open_on_the_same_sunday():
     assert len(set(ready)) == len(ready)
     result = simulate(5, weeks=24, difficulty="standard")
     opens = [row for row in result.actions if row.endswith(":open_store")]
-    assert len(opens) <= 3
+    weeks = {row.split(":", 1)[0] for row in opens}
+    assert len(opens) <= 6
+    if len(opens) >= 2:
+        assert len(weeks) >= 2
 
 
 def test_rent_is_not_charged_twice():

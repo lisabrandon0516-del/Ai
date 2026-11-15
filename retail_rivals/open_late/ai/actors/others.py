@@ -7,6 +7,7 @@ from open_late.ai.constants import (
     NORTHLINE_PRICE_MAX,
     NORTHLINE_PRICE_MIN,
     SUPPLIER_NAMES,
+    week_of,
 )
 from open_late.ai.legal import clamp_blocks, clamp_northline_price, manager_menu
 from open_late.ai.models import Action, ActorMemory, ActorRef, Personality, RivalChain, SupplierQuote
@@ -26,9 +27,16 @@ def board_actions(
     week: int,
     personalities: dict[str, Personality],
 ) -> list[Action]:
-    if chain.status == "bankrupt":
-        return []
     actor = ActorRef(kind="board", id=f"board:{chain.chain_id}")
+    if chain.status == "bankrupt":
+        locked = chain.bankrupt_on is None or week < week_of(chain.bankrupt_on) + 52
+        if locked:
+            return []
+        memory.counters["filed"] = 0
+        memory.counters["declared"] = 0
+        memory.counters["weeks_cash_negative"] = 0
+        memory.counters["weeks_distressed"] = 0
+        return [_board(actor, chain, "reenter", {})]
     if memory.counters.get("cash_week") != week:
         if chain.cash < 0:
             memory.counters["weeks_cash_negative"] = memory.counters.get("weeks_cash_negative", 0) + 1
@@ -267,12 +275,23 @@ def town_actions(
     if week > 0 and week % 4 == 0:
         counts = doors or {}
         for city in CITIES:
-            actions.append(_local_rule(seed, week, city, factors, int(counts.get(city, 0))))
+            actions.extend(_local_rules(seed, week, city, factors, int(counts.get(city, 0))))
     return actions
 
 
-def _local_rule(seed: int, week: int, city: str, factors: dict[str, int], doors: int) -> Action:
-    """One regulation for this city, from its doors and income, not a national rotation."""
+_FLAG_FACTORS = (17, 107, 109, 110)
+
+
+def _flag_on(factors: dict[str, int], fid: int, city: str) -> bool:
+    return int(factors.get(f"{fid}:{city}", factors.get(str(fid), 0))) != 0
+
+
+def _local_rules(seed: int, week: int, city: str, factors: dict[str, int], doors: int) -> list[Action]:
+    """One local rule, and any flag that is on turns off unless it is being set now.
+
+    A flag stays up for a month. The next town week clears it, so road work and
+    inspections do not stick for the rest of the year. Sales tax steps once a quarter.
+    """
     income = int(factors.get(f"14:{city}", factors.get("14", 100)))
     if doors >= 4:
         fid, kind, mode = 17, "schedule_road_work", "flag"
@@ -290,14 +309,48 @@ def _local_rule(seed: int, week: int, city: str, factors: dict[str, int], doors:
         fid, kind, mode = 104, "sales_tax_drift", "walk"
     step = 1 + ai_rng(seed, "ai.town", week, city, "rule").randrange(2)
     actor = ActorRef(kind="town", id=f"town:{city}")
-    if mode == "flag":
-        args: dict = {"factor_id": fid, "value": 1, "cities": [city]}
-    elif mode == "intensity":
-        args = {"factor_id": fid, "value": 2 + step, "cities": [city]}
-    else:
+    actions: list[Action] = []
+    setting = fid if mode in {"flag", "intensity"} and not _flag_on(factors, fid, city) else None
+    if setting == 17 or setting == 109 or setting == 110:
+        actions.append(
+            Action(
+                actor=actor,
+                kind=kind,
+                args={"factor_id": fid, "value": 1, "cities": [city]},
+                reason=town_reason(city, kind),
+            )
+        )
+    elif setting == 107:
+        actions.append(
+            Action(
+                actor=actor,
+                kind=kind,
+                args={"factor_id": fid, "value": 2 + step, "cities": [city]},
+                reason=town_reason(city, kind),
+            )
+        )
+    elif mode == "walk" and week % 12 == 0:
         current = int(factors.get(f"{fid}:{city}", factors.get(str(fid), 100)))
-        args = {"factor_id": fid, "delta": step if current < 106 else -step, "cities": [city]}
-    return Action(actor=actor, kind=kind, args=args, reason=town_reason(city, kind))
+        actions.append(
+            Action(
+                actor=actor,
+                kind=kind,
+                args={"factor_id": fid, "delta": step if current < 106 else -step, "cities": [city]},
+                reason=town_reason(city, kind),
+            )
+        )
+    for other in _FLAG_FACTORS:
+        if other == setting or not _flag_on(factors, other, city):
+            continue
+        actions.append(
+            Action(
+                actor=actor,
+                kind="clear_rule",
+                args={"factor_id": other, "value": 0, "cities": [city]},
+                reason=town_reason(city, "clear_rule"),
+            )
+        )
+    return actions
 
 
 def choose_northline(

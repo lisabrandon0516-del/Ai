@@ -114,6 +114,24 @@ def apply_chain_action(
     elif kind == "close_store":
         sid = str(args.get("store_id", ""))
         rows = [row for row in rows if row.get("id") != sid]
+    elif kind == "reopen_store":
+        sid = str(args.get("store_id", ""))
+        if not any(row.get("id") == sid for row in rows):
+            rows.append(
+                {
+                    "id": sid,
+                    "city": city,
+                    "owner": "rival",
+                    "chain_id": chain.chain_id,
+                    "price_index": clamp_price(chain.price_index),
+                    "distance_band": 2,
+                    "trust": 50,
+                    "promo": 0,
+                    "stockouts": 0,
+                    "focus": "grocery",
+                    "ramp": 1.0,
+                }
+            )
     elif kind == "open_store":
         existing = len([store for store in chain.stores if store.city == city])
         delay = int(args.get("delay_weeks", 4))

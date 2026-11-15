@@ -9,9 +9,8 @@ Money is rounded only at the return.
 
 from __future__ import annotations
 
-from open_late.ai.constants import BASE_WEEKLY_SALES, WEEKLY_RENT
+from open_late.ai.constants import BASE_WEEKLY_SALES, BUILD_WEEKLY_RATE, WEEKLY_RENT
 from open_late.ai.costs import labor_multiplier, rent_multiplier, tax_drag_bps, traffic_mult
-from open_late.finance import INTEREST_RATE
 from open_late.ai.market import (
     apply_chain_action,
     apply_player_reply,
@@ -80,7 +79,7 @@ def weekly_net(
     opex_rate = ratio * (0.65 * labor_mult + 0.35 * rent_mult)
     cogs = int(round(sales * (1.0 - gm)))
     opex = int(round(sales * opex_rate))
-    interest = int(round(debt * INTEREST_RATE))
+    interest = int(round(debt * BUILD_WEEKLY_RATE))
     door_rent = WEEKLY_RENT if rent is None else rent
     net = sales - cogs - opex - door_rent - interest
     return net, cogs, opex + door_rent + interest
@@ -118,7 +117,9 @@ def _effects(
     elif kind == "cut_costs":
         cut = int(args.get("pct", 1))
     elif kind == "open_store":
-        cash -= opening_cost
+        cash -= opening_cost - int(args.get("draw", 0))
+        store_factor = 1
+    elif kind == "reopen_store":
         store_factor = 1
     elif kind == "close_store":
         store_factor = -1
@@ -195,6 +196,8 @@ def project_action(
     debt = max(0, chain.debt + debt_delta)
     if kind == "raise_capital":
         debt += int(args.get("amount", 0))
+    if kind == "open_store":
+        debt += int(args.get("draw", 0))
     if kind == "pay_down_debt":
         debt = max(0, debt - int(args.get("amount", 0)))
     net, cogs, opex = weekly_net(
@@ -292,7 +295,7 @@ def _bundle(
 ) -> tuple[int, int]:
     """Return (sales, net) across the chain's doors. Occupancy sits inside opex."""
     if not sales_map:
-        interest = int(round(max(0, debt) * INTEREST_RATE))
+        interest = int(round(max(0, debt) * BUILD_WEEKLY_RATE))
         return 0, -interest
     debt_share = max(0, debt) // len(sales_map)
     sales = 0
@@ -402,6 +405,8 @@ def _project_logit(
     debt = max(0, chain.debt + debt_delta)
     if kind == "raise_capital":
         debt += int(args.get("amount", 0))
+    if kind == "open_store":
+        debt += int(args.get("draw", 0))
     if kind == "pay_down_debt":
         debt = max(0, debt - int(args.get("amount", 0)))
     bundle = dict(
@@ -446,7 +451,8 @@ def _project_logit(
                 price_index=int(prices.get(store_id, _price)),
                 shelf_index=shelf_index,
             )
-            if door_net <= 0:
+            coupon = int(round(int(args.get("draw", 0)) * BUILD_WEEKLY_RATE))
+            if door_net <= coupon:
                 share_change_bps = 0
                 break
     if share_change_bps > 0:

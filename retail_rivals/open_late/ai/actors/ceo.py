@@ -10,7 +10,16 @@ from __future__ import annotations
 
 import hashlib
 
-from open_late.ai.constants import BIG_CALLS, PLAYER_TYPES, PRICE_INDEX_MAX, PRICE_INDEX_MIN, SEARCH_ITERS, SEARCH_SHORTLIST
+from open_late.ai.constants import (
+    BIG_CALLS,
+    DEPARTMENTS,
+    PLAYER_TYPES,
+    PRICE_INDEX_MAX,
+    PRICE_INDEX_MIN,
+    SEARCH_ITERS,
+    SEARCH_SHORTLIST,
+    SEGMENTS,
+)
 from open_late.ai.forecast import _effects, project_action
 from open_late.ai.legal import ceo_menu, clamp_price
 from open_late.ai.market import apply_chain_action, apply_player_reply, opened_store_id
@@ -76,13 +85,33 @@ def _mandate_fit(
     return 0.25
 
 
+def _preferred_dept(segments: dict | None, income: int) -> str:
+    """The department this city's shoppers already prefer. Grocery if we cannot tell."""
+    if not segments:
+        return "grocery"
+    from open_late.ai.shoppers import segment_mix
+
+    mix = segment_mix(income)
+    best = "grocery"
+    best_score = -1.0
+    for dept in DEPARTMENTS:
+        score = 0.0
+        for name in SEGMENTS:
+            score += float(mix.get(name, 0.0)) * float(segments[name].get("depts", {}).get(dept, 1.0))
+        if score > best_score or (score == best_score and dept < best):
+            best = dept
+            best_score = score
+    return best
+
+
 def _city_posture(
     archetype: str,
     city: str,
     chain: RivalChain,
     income_by_city: dict[str, int] | None,
+    occupied: int = 0,
 ) -> float:
-    """Break a tie between cities. Income fit plus a stable per-chain nudge."""
+    """Break a tie between cities. Income fit, who is already there, and a stable nudge."""
     income = int((income_by_city or {}).get(city, 100))
     here = sum(1 for store in chain.stores if store.city == city and store.status in {"open", "building"})
     if archetype == "premium":
@@ -92,6 +121,7 @@ def _city_posture(
     else:
         fit = 0.8 if here == 0 else -0.4
     fit -= 0.6 * here
+    fit -= 1.2 * occupied
     digest = hashlib.blake2s(f"{chain.chain_id}|{city}".encode(), digest_size=2).digest()
     nudge = (int.from_bytes(digest, "little") / 65535.0 - 0.5) * 0.6
     return fit + nudge
@@ -139,6 +169,8 @@ def advance_chain(chain: RivalChain, action: Action, opening_cost: int) -> Rival
     city = str(args.get("city", ""))
     if kind == "raise_capital":
         shadow.debt += int(args.get("amount", 0))
+    elif kind == "open_store":
+        shadow.debt += int(args.get("draw", 0))
     elif kind == "pay_down_debt":
         shadow.debt = max(0, shadow.debt - int(args.get("amount", 0)))
     elif kind == "set_chain_price_index":
@@ -266,7 +298,19 @@ def _terms(
             shelf=personality.price_index,
         )
         + (
-            _city_posture(personality.archetype, str(action.args.get("city", "")), chain, income_by_city)
+            _city_posture(
+                personality.archetype,
+                str(action.args.get("city", "")),
+                chain,
+                income_by_city,
+                occupied=sum(
+                    1
+                    for row in (market or [])
+                    if row.get("city") == action.args.get("city")
+                    and row.get("chain_id") not in {chain.chain_id, "online"}
+                    and row.get("id") != "online"
+                ),
+            )
             if action.kind == "open_store"
             else 0.0
         ),
@@ -456,12 +500,38 @@ def choose_ceo_action(
         action.reason = ceo_reason(chain.chain_id, action.kind, action.args)
         return action
 
+    kept: list[Action] = []
     for action in menu:
         if action.kind == "defend":
             city = str(action.args.get("city", ""))
             action.args["match_index"] = int(player_price.get(city, chain.price_index))
         if action.kind == "copy_best_seller":
-            action.args["dept"] = "grocery"
+            city = str(action.args.get("city", ""))
+            income = int((income_by_city or {}).get(city, 100))
+            dept = _preferred_dept(segments, income)
+            action.args["dept"] = dept
+            focused = [
+                store
+                for store in chain.stores
+                if store.city == city and store.status == "open" and store.focus_dept == dept
+            ]
+            if focused:
+                continue
+        kept.append(action)
+    # Don't build on top of a door that is already there. An empty city is the
+    # only opening, so chains spread out instead of stacking in the first one
+    # that looks profitable.
+    def _occupied(action: Action) -> int:
+        return sum(
+            1
+            for row in (market or [])
+            if row.get("city") == action.args.get("city")
+            and row.get("chain_id") not in {chain.chain_id, "online"}
+            and row.get("id") != "online"
+        )
+
+    kept = [action for action in kept if action.kind != "open_store" or _occupied(action) == 0]
+    menu = kept
 
     scored: list[tuple[Action, float, dict[str, float]]] = []
     for action in menu:
