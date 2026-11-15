@@ -7,6 +7,7 @@ from open_late.ai.constants import (
     NORTHLINE_PRICE_MAX,
     NORTHLINE_PRICE_MIN,
     SUPPLIER_NAMES,
+    TOWN_DELAYS_PLAYER,
     week_of,
 )
 from open_late.ai.legal import clamp_blocks, clamp_northline_price, manager_menu
@@ -269,6 +270,8 @@ def town_actions(
     for permit in sorted(permits, key=lambda row: (str(row.get("city", "")), str(row.get("applicant", "")))):
         city = str(permit.get("city", ""))
         applicant = str(permit.get("applicant", ""))
+        if applicant == "player" and not TOWN_DELAYS_PLAYER:
+            continue
         delay = 2 + ai_rng(seed, "ai.town", week, applicant, city, "delay").randrange(7)
         actor = ActorRef(kind="town", id=f"town:{city}")
         actions.append(
@@ -336,16 +339,23 @@ def _local_rules(seed: int, week: int, city: str, factors: dict[str, int], doors
                 reason=town_reason(city, kind),
             )
         )
-    elif mode == "walk" and week % 12 == 0:
+    elif mode == "walk" and week % 13 == 0:
         current = int(factors.get(f"{fid}:{city}", factors.get(str(fid), 100)))
-        actions.append(
-            Action(
-                actor=actor,
-                kind=kind,
-                args={"factor_id": fid, "delta": step if current < 106 else -step, "cities": [city]},
-                reason=town_reason(city, kind),
+        delta = step if current < 100 else -step
+        nxt = current + delta
+        if nxt > 105:
+            delta = 105 - current
+        elif nxt < 95:
+            delta = 95 - current
+        if delta != 0:
+            actions.append(
+                Action(
+                    actor=actor,
+                    kind=kind,
+                    args={"factor_id": fid, "delta": delta, "cities": [city]},
+                    reason=town_reason(city, kind),
+                )
             )
-        )
     for other in _FLAG_FACTORS:
         if other == setting or not _flag_on(factors, other, city):
             continue

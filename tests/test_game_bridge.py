@@ -492,6 +492,36 @@ def test_a_bankrupt_chain_returns_after_the_lockout():
     del provider
 
 
+def test_building_lasts_the_delay_plus_build_days():
+    from open_late.ai_bridge import market_table
+
+    snap, _provider = make_snapshot(1, difficulty="calm")
+    assert snap.ai is not None
+    chain = next(iter(snap.ai.chains.values()))
+    chain.cash = 20_000_000
+    cost = 19_640_000
+    loan = int(cost * 0.70)
+    action = Action(
+        actor=ActorRef(kind="ceo", id=f"ceo:{chain.chain_id}"),
+        kind="open_store",
+        args={"city": "houston", "site_band": 2, "cost": cost, "loan": loan, "equity": cost - loan},
+        reason="ValueMax filed to open a store in Houston.",
+    )
+    apply_actions(snap, [action])
+    permits = town_actions(
+        seed=snap.seed,
+        week=snap.week,
+        day=snap.day,
+        permits=list(snap.public["permits"]),
+        factors=snap.factors,
+    )
+    permit = next(item for item in permits if item.kind == "permit")
+    apply_actions(snap, [permit])
+    building = next(store for store in chain.stores if store.city == "houston" and store.status == "building")
+    delay = int(permit.args["weeks"])
+    assert building.opened_on == snap.day + delay * 7 + market_table()["houston"].build_days
+
+
 def test_city_pool_is_bounded():
     from open_late.ai.market import card_units
     from open_late.ai.shoppers import load_segments, visit_multipliers

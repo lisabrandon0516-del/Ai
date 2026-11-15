@@ -447,9 +447,12 @@ def _apply_one(snap: Snapshot, action: Action) -> ActionResult:
         city = str(action.args.get("city", ""))
         chain = snap.ai.chains.get(applicant)
         if chain is not None:
+            from open_late.ai_bridge import market_table
+
+            build = market_table()[city].build_days if city in market_table() else 0
             for store in chain.stores:
                 if store.city == city and store.status == "building":
-                    store.opened_on = snap.day + weeks * 7
+                    store.opened_on = snap.day + weeks * 7 + build
         snap.public["permits"] = [
             row
             for row in snap.public.get("permits", [])

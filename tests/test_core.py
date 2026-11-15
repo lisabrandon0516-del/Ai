@@ -172,6 +172,33 @@ def test_confidence_worked_example():
     assert empty.confidence is None and empty.band == "unknown"
 
 
+def test_player_permit_is_not_delayed():
+    actions = town_actions(
+        seed=5,
+        week=2,
+        day=8,
+        permits=[{"applicant": "player", "city": "houston", "filed_day": 1}],
+        factors={"107": 100},
+    )
+    assert all(action.kind != "permit" for action in actions)
+
+
+def test_sales_tax_stays_near_neutral():
+    factors = {f"104:{city}": 100 for city in ("evansville", "seattle", "houston", "las_vegas", "naperville")}
+    factors["14:houston"] = 100
+    for week in (13, 26, 39, 52):
+        actions = town_actions(seed=3, week=week, day=week * 7, permits=[], factors=factors, doors={"houston": 1})
+        for action in actions:
+            if action.kind != "sales_tax_drift":
+                continue
+            city = action.args["cities"][0]
+            key = f"104:{city}"
+            factors[key] = int(factors.get(key, 100)) + int(action.args["delta"])
+    for key, value in factors.items():
+        if key.startswith("104:"):
+            assert 95 <= value <= 105
+
+
 def test_towns_delay_and_never_deny():
     permits = [{"applicant": "alpha", "city": "houston", "filed_day": 1}]
     first = town_actions(seed=5, week=2, day=8, permits=permits, factors={"107": 100})
