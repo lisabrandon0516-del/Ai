@@ -1,0 +1,37 @@
+name: Materialize Retail Rivals assets
+on:
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  materialize:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - name: Decode binary assets, commit, and clean up staging
+        run: |
+          set -euo pipefail
+          test -d retail_rivals/.asset_stage
+          cat retail_rivals/.asset_stage/part-*.b64 | base64 -d > /tmp/rr_assets.tar.gz
+          echo "b52c923b9c323cf7f20741d25f964ef0f11da756776f3e101068a06882c6c9ed  /tmp/rr_assets.tar.gz" | sha256sum -c
+          tar -xz -C retail_rivals -f /tmp/rr_assets.tar.gz
+          test -f retail_rivals/open_late/assets/brand/radio_off.png
+          test -f retail_rivals/open_late/assets/brand/retail_rivals_logo.png
+          python3 - <<'PY'
+          from pathlib import Path
+          assets = Path("retail_rivals/open_late/assets")
+          files = [p for p in assets.rglob("*") if p.is_file()]
+          print(f"decoded {len(files)} asset files")
+          if len(files) != 54:
+              raise SystemExit(f"expected 54 asset files, got {len(files)}")
+          PY
+          rm -rf retail_rivals/.asset_stage
+          rm -f .github/workflows/materialize-retail-rivals-assets.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git status --short
+          git commit -m "Add Retail Rivals binary assets and remove staging files"
+          git push origin HEAD:main
