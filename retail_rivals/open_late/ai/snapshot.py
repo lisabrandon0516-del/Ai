@@ -23,7 +23,7 @@ class Snapshot(BaseModel):
     player_chain_id: str = "megamart"
     northline_smart: bool = False
     private_label: bool = False
-    opening_cost: int = 6_000_000
+    opening_cost: int = 0
     remodel_cost: int = 500_000
     raise_amount: int = 2_000_000
     factors: dict[str, int] = Field(default_factory=dict)

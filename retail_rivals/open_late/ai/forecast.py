@@ -9,8 +9,8 @@ Money is rounded only at the return.
 
 from __future__ import annotations
 
-from open_late.ai.constants import BASE_WEEKLY_SALES, BUILD_WEEKLY_RATE, WEEKLY_RENT
-from open_late.ai.costs import labor_multiplier, rent_multiplier, tax_drag_bps, traffic_mult
+from open_late.ai.constants import BASE_WEEKLY_SALES, BUILD_WEEKLY_RATE
+from open_late.ai.costs import labor_multiplier, tax_drag_bps, traffic_mult, weekly_rent
 from open_late.ai.market import (
     apply_chain_action,
     apply_player_reply,
@@ -69,18 +69,20 @@ def weekly_net(
 ) -> tuple[int, int, int]:
     """Return (net, cogs, opex_dollars), all integer dollars.
 
-    Operating expense already includes occupancy. Factor 88 scales that slice.
-    A caller that passes ``rent`` of 0 is not charged a second rent line.
+    Dollar rent is the market lease. When it is passed, factor 88 is already
+    inside that number, so the occupancy slice of opex stays neutral.
     """
     gm_bps = priced_margin_bps(gross_margin_bps, int(price_index or 0), int(shelf_index or 0))
     gm = gm_bps / 10_000.0 - (promo_depth / 100.0) * 0.45 - war_intensity * 0.0015
     gm = max(-1.0, min(0.85, gm))
     ratio = (opex_bps / 10_000.0) * (1.0 - cost_cut_pct / 100.0)
+    if rent:
+        rent_mult = 1.0
     opex_rate = ratio * (0.65 * labor_mult + 0.35 * rent_mult)
     cogs = int(round(sales * (1.0 - gm)))
     opex = int(round(sales * opex_rate))
     interest = int(round(debt * BUILD_WEEKLY_RATE))
-    door_rent = WEEKLY_RENT if rent is None else rent
+    door_rent = 0 if rent is None else rent
     net = sales - cogs - opex - door_rent - interest
     return net, cogs, opex + door_rent + interest
 
@@ -231,7 +233,7 @@ def project_action(
     low_sales = weekly_sales(price, visit_mult, promo, shock_bps - 1000) * max(count, 1 if count else 0)
     high_sales = weekly_sales(price, visit_mult, promo, shock_bps + 1000) * max(count, 1 if count else 0)
     if count == 0:
-        low_net = high_net = -WEEKLY_RENT * 0
+        low_net = high_net = 0
         p10 = 0
         p90 = 0
     else:
@@ -341,9 +343,8 @@ def _door_factors(
         prices[store_id] = int(row.get("price_index", 100))
         if city not in {"evansville", "seattle", "houston", "las_vegas", "naperville"}:
             continue
-        # Occupancy is inside opex. Dollar rent stays 0 so it is not charged again.
-        rents[store_id] = 0
-        rent_mults[store_id] = rent_multiplier(factors, city) if factors is not None else 1.0
+        rents[store_id] = weekly_rent(city, factors)
+        rent_mults[store_id] = 1.0
         labors[store_id] = labor_multiplier(factors, city) if factors is not None else 1.0
         taxes[store_id] = tax_drag_bps(factors, city) if factors is not None else 0
         traffic[store_id] = traffic_mult(factors, city) if factors is not None else 1.0
@@ -514,8 +515,8 @@ def store_pnl(
     if factors is not None:
         labor = labor_multiplier(factors, store.city)
         extra = tax_drag_bps(factors, store.city)
-        rent_mult = rent_multiplier(factors, store.city)
-        dollar_rent = 0
+        dollar_rent = weekly_rent(store.city, factors)
+        rent_mult = 1.0
     net, cogs, opex = weekly_net(
         sales,
         gross_margin_bps,

@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from open_late.corporate import MARKETS
 from open_late.economy import SALES_CAP, _cap_mult, _key, _starting_values
 from open_late.economy_e3 import LABOR_CAP, RENT_CAP
+from open_late.store_costs import SUPERCENTER_BUILD_COST
 
 API_VERSION = 1
 
@@ -57,7 +58,10 @@ def market_table() -> dict[str, MarketRow]:
 
 
 def opening_cost(city: str, factors: dict[str, int] | None = None) -> int:
-    """Rival build cost. WI-1 points this at the shared supercenter table."""
-    from open_late.ai.costs import city_opening_cost
-
-    return city_opening_cost(city, factors)
+    """Shared supercenter cost times factor 95, clamped the way the engine clamps it."""
+    base = SUPERCENTER_BUILD_COST[city]
+    raw = 100
+    if factors:
+        raw = int(factors.get(factor_key(95, city), factors.get("95", 100)))
+    mult = max(0.9, min(1.4, raw / 100.0))
+    return int(round(base * mult))

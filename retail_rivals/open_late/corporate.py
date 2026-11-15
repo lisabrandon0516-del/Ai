@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from open_late.content import SHOP_STOCK, STAFF, SUPPLIERS
+from open_late.store_costs import SUPERCENTER_BUILD_COST
 from open_late.finance import CREW_MULT, LABOR_BUDGET_DEFAULT, PAYROLL_TAX_PER_TEN_THOUSAND, SIZE_MULT, allocate_sizes, card_fee, is_sized, size_int
 from open_late.inbox import add
 from open_late.models import Door, GameState, SalesDay, Shipment, Site, StockLine, StoreManager, VendorDeal
@@ -208,7 +209,7 @@ MARKETS = {
     key: _replace(
         market,
         rent_weekly=size_int(market.rent_weekly),
-        opening_cost=size_int(market.opening_cost),
+        opening_cost=0 if key == "evansville" else SUPERCENTER_BUILD_COST[key],
         min_cash_after=size_int(market.min_cash_after),
         wage_floor=size_int(market.wage_floor),
     )

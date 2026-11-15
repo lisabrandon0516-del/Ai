@@ -17,6 +17,13 @@ from open_late.finance import SIZE_MULT, freight_for, pay_advice
 from open_late.content import SUPPLIERS
 
 
+def _afford(state, city: str) -> None:
+    from open_late.corporate import MARKETS
+
+    market = MARKETS[city]
+    state.cash = market.opening_cost + market.min_cash_after + 1
+
+
 def _clear(state) -> None:
     for message in list(blocking(state)):
         for choice in message.choices:
@@ -85,7 +92,7 @@ def test_suburb_lease_keeps_the_intense_wall_off():
     from open_late.corporate import open_market, set_planogram
 
     state = new_game("Toy's N Us", "corporate", seed=3)
-    state.cash = 200_000 * SIZE_MULT
+    _afford(state, "naperville")
     assert "Naperville" in open_market(state, "naperville")
     refused = set_planogram(state, "naperville", _shares(pharmacy=12))
     assert "lease" in refused.lower()
@@ -130,7 +137,7 @@ def test_long_haul_damages_units_and_a_full_store_sends_the_rest_back():
     from open_late.models import DayReport
 
     state = new_game("Toy's N Us", "corporate", seed=8)
-    state.cash = 200_000 * SIZE_MULT
+    _afford(state, "seattle")
     open_market(state, "seattle")
     door = _door(state, "seattle")
     state.stock["house-towels"].on_hand = 40
@@ -161,7 +168,7 @@ def test_a_new_city_does_not_sell_during_build_out():
     from open_late.corporate import open_market
 
     state = new_game("Toy's N Us", "corporate", seed=9)
-    state.cash = 200_000 * SIZE_MULT
+    _afford(state, "houston")
     message = open_market(state, "houston")
     assert "build-out" in message.lower()
     door = _door(state, "houston")
@@ -250,7 +257,7 @@ def test_seattle_wage_floor_and_schedule_change_penalty():
     from open_late.corporate import assign_door, open_market, set_door_hours
 
     state = new_game("Toy's N Us", "corporate", seed=4)
-    state.cash = 200_000 * SIZE_MULT
+    _afford(state, "seattle")
     open_market(state, "seattle")
     placed = assign_door(state, "priya", "seattle")
     priya = staff_by_id(state, "priya")
@@ -284,7 +291,7 @@ def test_vegas_weekend_is_busier_than_a_monday():
     from open_late.corporate import crowd_factor, open_market
 
     state = new_game("Toy's N Us", "corporate", seed=3)
-    state.cash = 200_000 * SIZE_MULT
+    _afford(state, "las_vegas")
     open_market(state, "las_vegas")
     door = _door(state, "las_vegas")
     state.day = 1
@@ -298,7 +305,7 @@ def test_houston_has_no_state_income_tax_on_the_voucher():
     from open_late.corporate import assign_manager, hire_manager, open_market
 
     state = new_game("Toy's N Us", "corporate", seed=5)
-    state.cash = 200_000 * SIZE_MULT
+    _afford(state, "houston")
     open_market(state, "houston")
     hire_manager(state, "owen")
     assign_manager(state, "owen", "houston")
@@ -388,7 +395,7 @@ def test_two_doors_raise_sunday_rent():
     blocked = open_market(state, "houston")
     assert "drawer" in blocked.lower()
     assert len(state.doors) == 1
-    state.cash = 200_000 * SIZE_MULT
+    _afford(state, "houston")
     open_market(state, "houston")
     assert sum(site.rent_weekly for site in state.sites) > first
 

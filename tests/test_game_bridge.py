@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+from pathlib import Path
 
 from open_late.ai.actors.ceo import choose_ceo_action
 from open_late.ai.actors.others import board_actions, town_actions
@@ -26,19 +27,62 @@ from open_late.standin.sim import apply_actions, make_snapshot, simulate
 
 
 def test_opening_cost_uses_the_market_and_factor_95():
-    from open_late.ai.costs import SUPER_CENTER_DEAREST
+    from open_late.store_costs import SUPERCENTER_BUILD_COST
 
     base = city_opening_cost("seattle", {"95:seattle": 100})
-    assert base == SUPER_CENTER_DEAREST
-    assert base > MARKETS["seattle"].opening_cost
+    assert base == SUPERCENTER_BUILD_COST["seattle"]
+    assert base == MARKETS["seattle"].opening_cost
     hot = city_opening_cost("seattle", {"95:seattle": 140})
     assert hot == int(round(base * 1.4))
     houston = city_opening_cost("houston", {"95:houston": 100})
+    assert houston == SUPERCENTER_BUILD_COST["houston"]
     assert MARKETS["houston"].opening_cost < MARKETS["seattle"].opening_cost
-    assert 15_000_000 <= houston < base
     cool = city_opening_cost("houston", {"95:houston": 90})
     assert cool == int(round(houston * 0.9))
-    assert city_opening_cost("evansville", {"95:evansville": 100}) == 0
+    assert city_opening_cost("evansville", {"95:evansville": 100}) == SUPERCENTER_BUILD_COST["evansville"]
+    assert MARKETS["evansville"].opening_cost == 0
+
+
+def test_player_and_rival_pay_the_same():
+    from open_late.store_costs import SUPERCENTER_BUILD_COST
+
+    for city, cost in SUPERCENTER_BUILD_COST.items():
+        rival = city_opening_cost(city, {f"95:{city}": 100})
+        assert rival == cost
+        if city == "evansville":
+            assert MARKETS[city].opening_cost == 0
+            continue
+        assert MARKETS[city].opening_cost == rival
+
+
+def test_no_hardcoded_opening_cost():
+    import ast
+
+    root = Path(__file__).resolve().parents[1] / "retail_rivals" / "open_late" / "ai"
+    banned = {"WEEKLY_RENT", "SUPER_CENTER_DEAREST"}
+    for path in root.rglob("*.py"):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Name) and node.id in banned:
+                raise AssertionError(f"{path} still names {node.id}")
+            target = None
+            value = None
+            if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
+                target = node.targets[0].id
+                value = node.value
+            elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+                target = node.target.id
+                value = node.value
+            if target and value is not None and any(part in target.lower() for part in ("cost", "rent", "opening")):
+                if isinstance(value, ast.Constant) and isinstance(value.value, int) and value.value > 1_000_000:
+                    raise AssertionError(f"{path} hardcodes {target} = {value.value}")
+
+
+def test_rival_rent_matches_market_table():
+    calm = weekly_rent("houston", {"88:houston": 100, "89:houston": 100})
+    assert calm == MARKETS["houston"].rent_weekly
+    hot = weekly_rent("las_vegas", {"88:las_vegas": 120, "89:las_vegas": 100})
+    assert hot == int(round(MARKETS["las_vegas"].rent_weekly * 1.06))
 
 
 def test_rent_reads_factor_88():
@@ -417,8 +461,8 @@ def test_rent_is_not_charged_twice():
         shelf_index=person.price_index,
     )
     full_rent = weekly_rent("seattle", neutral)
-    # Factor 88 moves the occupancy slice of opex, not a second full lease.
-    assert stressed.opex > base.opex
+    # Factor 88 moves the one market lease, and it is not charged a second time.
+    assert stressed.opex - base.opex == weekly_rent("seattle", hot) - full_rent
     assert stressed.opex - base.opex < full_rent // 2
 
 
