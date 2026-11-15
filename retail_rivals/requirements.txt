@@ -1,0 +1,5 @@
+PySide6>=6.6
+pydantic>=2.6
+pytest>=8.0
+tzdata>=2024.1
+Pillow>=10.0

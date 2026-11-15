@@ -1,0 +1,11 @@
+Retail Rivals
+
+1. Unzip this whole folder. Keep Play.bat next to the open_late folder.
+2. Install Python 3.11 or newer from https://www.python.org/downloads/
+   On the installer, check Add python.exe to PATH.
+3. Double-click Play.bat. The first launch installs the desk and can take a minute.
+
+On the first screen, pick Shop, Online, or Corporate office.
+Corporate office is the chain: the Evansville warehouse, then Seattle, Houston, Las Vegas, and Naperville.
+
+Saves stay on this computer, in your user folder under .open_late.
