@@ -24,6 +24,7 @@ from open_late.ai.constants import (
     SUPPLIERS,
     factor_key,
 )
+from open_late.ai.legal import clamp_price
 from open_late.ai.memory import add_grudge, append_move, decay_grudge, ensure_memory, update_belief
 from open_late.ai.models import (
     AIState,
@@ -47,8 +48,13 @@ _GROWTH = {"price_leader": 35, "premium": 20, "expander": 80}
 class RetailAI:
     api_version = 1
 
-    def __init__(self) -> None:
-        self.personalities, self.weights_hash = load_personalities()
+    def __init__(self, personalities: dict | None = None) -> None:
+        loaded, digest = load_personalities()
+        self.weights_hash = digest
+        if personalities is None:
+            self.personalities = loaded
+        else:
+            self.personalities = {key: person.model_copy(deep=True) for key, person in personalities.items()}
         self.segments = load_segments()
 
     def init_world(self, snap: Snapshot, rng: object = None) -> AIState:
@@ -116,6 +122,9 @@ class RetailAI:
             cities = {store.city for store in chain.stores if store.status in {"open", "building"}}
             observation = _observe(snap, ActorRef(kind="ceo", id=f"ceo:{chain_id}"), cities, _own_chain(chain))
             prices = {city: int(index) for city, index in observation.public.get("player_price_index", {}).items()}
+            income = {
+                city: int(snap.factors.get(factor_key(14, city), snap.factors.get("14", 100))) for city in CITIES
+            }
             chosen = choose_ceo_action(
                 chain,
                 person,
@@ -129,6 +138,9 @@ class RetailAI:
                 visit_mult=_visit_mult(state, chain),
                 remodel_cost=snap.remodel_cost,
                 raise_amount=snap.raise_amount,
+                market=_market_stores(snap),
+                segments=self.segments,
+                income_by_city=income,
             )
             actions.append(chosen)
             append_move(
@@ -399,6 +411,24 @@ def _has_open_store(chain: RivalChain, city: str) -> bool:
     return any(store.city == city and store.status == "open" for store in chain.stores)
 
 
+def _war_cut(snap: Snapshot, city: str) -> int:
+    until = int((snap.public.get("war_until") or {}).get(city, 0))
+    if snap.week <= until:
+        return int(snap.wars.get(city, 0)) // 2
+    return 0
+
+
+def _shelf_price(price: int, cut: int) -> int:
+    if cut <= 0:
+        return price
+    return clamp_price(price - cut)
+
+
+def _market_stores(snap: Snapshot) -> list[dict]:
+    """Public doors every chain can see, including the other chains."""
+    return _shopper_stores(snap)
+
+
 def _shopper_stores(snap: Snapshot) -> list[dict]:
     stores: list[dict] = []
     for row in snap.public.get("player_stores") or []:
@@ -408,7 +438,11 @@ def _shopper_stores(snap: Snapshot) -> list[dict]:
                 "id": str(row["id"]),
                 "city": city,
                 "owner": "player",
-                "price_index": int((snap.public.get("player_price_index") or {}).get(city, 100)),
+                "chain_id": "player",
+                "price_index": _shelf_price(
+                    int((snap.public.get("player_price_index") or {}).get(city, 100)),
+                    _war_cut(snap, city),
+                ),
                 "distance_band": int(row.get("distance_band", 1)),
                 "trust": int(row.get("trust", 60)),
                 "promo": int(row.get("promo", 0)),
@@ -417,8 +451,9 @@ def _shopper_stores(snap: Snapshot) -> list[dict]:
             }
         )
     assert snap.ai is not None
-    for chain_id in _acting(snap):
-        chain = snap.ai.chains[chain_id]
+    for chain_id, chain in sorted(snap.ai.chains.items()):
+        if chain.status == "bankrupt":
+            continue
         for store in chain.stores:
             if store.status != "open":
                 continue
@@ -427,7 +462,8 @@ def _shopper_stores(snap: Snapshot) -> list[dict]:
                     "id": store.id,
                     "city": store.city,
                     "owner": "rival",
-                    "price_index": store.price_index,
+                    "chain_id": chain_id,
+                    "price_index": _shelf_price(store.price_index, _war_cut(snap, store.city)),
                     "distance_band": store.distance_band,
                     "trust": 50,
                     "promo": store.promo_depth,
@@ -442,6 +478,7 @@ def _shopper_stores(snap: Snapshot) -> list[dict]:
                 "id": "northline",
                 "city": str(northline.get("city", "evansville")),
                 "owner": "northline",
+                "chain_id": "northline",
                 "price_index": int(northline.get("price_index", 102)),
                 "distance_band": 2 if int(northline.get("blocks_away", 8)) <= 10 else 3,
                 "trust": int(northline.get("reputation", 38)),
@@ -455,6 +492,7 @@ def _shopper_stores(snap: Snapshot) -> list[dict]:
             "id": "online",
             "city": "",
             "owner": "online",
+            "chain_id": "online",
             "price_index": int(snap.factors.get("86", 100)),
             "distance_band": 2,
             "trust": 50,

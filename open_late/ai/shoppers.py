@@ -60,6 +60,39 @@ def store_utility(coef: dict, store: dict, habit: float) -> float:
     return utility
 
 
+def visit_multipliers(
+    stores: list[dict],
+    segments: dict[str, dict],
+    *,
+    income_index: int = 100,
+    habit: dict[str, float] | None = None,
+) -> dict[str, int]:
+    """Integer x1000 visit multipliers for one city, online included.
+
+    This is the Sunday card's formula. A rival's multiplier is its logit
+    share divided by the player's solo-store anchor.
+    """
+    habit = habit or {}
+    physical = [store for store in stores if store.get("id") != "online"]
+    if not any(store.get("owner") in {"rival", "northline"} for store in physical):
+        return {str(store["id"]): 1000 for store in physical}
+    solo_stores = [store for store in stores if store.get("owner") in {"player", "online"}]
+    full = choice_shares(stores, segments, income_index=income_index, habit=habit)
+    solo = choice_shares(solo_stores, segments, income_index=income_index, habit=habit) if solo_stores else {}
+    player_solo = [share for sid, share in solo.items() if sid != "online"]
+    anchor = sum(player_solo) / len(player_solo) if player_solo else 1.0
+    anchor = anchor or 1.0
+    mults: dict[str, int] = {}
+    for store in physical:
+        sid = str(store["id"])
+        if store.get("owner") == "player" and sid in solo and solo[sid] > 0:
+            mult = int(round(1000 * full.get(sid, 0.0) / solo[sid]))
+        else:
+            mult = int(round(1000 * full.get(sid, 0.0) / anchor))
+        mults[sid] = max(0, min(5000, mult))
+    return mults
+
+
 def choice_shares(
     stores: list[dict],
     segments: dict[str, dict],
@@ -125,22 +158,13 @@ def bake_card(
                 visit[str(store["id"])] = 1000
                 dept[str(store["id"])] = {name: 1000 for name in DEPARTMENTS}
             continue
-        solo_stores = [store for store in local if store.get("owner") in {"player", "online"}]
         income = income_by_city.get(city, 100)
-        full = choice_shares(local, segments, income_index=income, habit=habit)
-        solo = choice_shares(solo_stores, segments, income_index=income, habit=habit) if solo_stores else {}
-        player_solo = [share for sid, share in solo.items() if sid != "online"]
-        anchor = sum(player_solo) / len(player_solo) if player_solo else 1.0
-        anchor = anchor or 1.0
+        mults = visit_multipliers(local, segments, income_index=income, habit=habit)
         for store in local:
             if store.get("id") == "online":
                 continue
             sid = str(store["id"])
-            if store.get("owner") == "player" and sid in solo and solo[sid] > 0:
-                mult = int(round(1000 * full.get(sid, 0.0) / solo[sid]))
-            else:
-                mult = int(round(1000 * full.get(sid, 0.0) / anchor))
-            visit[sid] = max(0, min(5000, mult))
+            visit[sid] = mults.get(sid, 1000)
             dept[sid] = _dept_mult(store, segments, income)
     return ShopperCard(week=week, visit_mult=visit, dept_mult=dept)
 

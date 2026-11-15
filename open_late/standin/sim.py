@@ -16,7 +16,7 @@ from open_late.ai.constants import (
     SUPPLIERS,
     week_of,
 )
-from open_late.ai.forecast import store_pnl, weekly_sales
+from open_late.ai.forecast import card_units, store_pnl
 from open_late.ai.legal import clamp_price, stamp_cooldowns
 from open_late.ai.models import (
     Action,
@@ -43,6 +43,9 @@ class SimResult:
     actions: list[str] = field(default_factory=list)
     final_cash: dict[str, int] = field(default_factory=dict)
     nets: dict[str, int] = field(default_factory=dict)
+    sales: dict[str, int] = field(default_factory=dict)
+    player_sales: int = 0
+    kinds_by_archetype: dict[str, list[str]] = field(default_factory=dict)
     reasons_ok: bool = True
 
     @property
@@ -62,8 +65,9 @@ def make_snapshot(
     player_chain: str = "megamart",
     ai_enabled: bool = True,
     provider: RetailAI | None = None,
+    personalities: dict | None = None,
 ) -> tuple[Snapshot, RetailAI]:
-    provider = provider or RetailAI()
+    provider = provider or RetailAI(personalities=personalities)
     factors = national_factors(100)
     factors["95"] = 100
     snap = Snapshot(
@@ -419,10 +423,11 @@ def _settle_player(snap: Snapshot) -> None:
     for row in snap.public.get("player_stores") or []:
         city = str(row["city"])
         price = int(snap.public["player_price_index"].get(city, 100))
+        price = max(1, price - _intensity(snap, city) // 2)
         mult = 1000
         if card is not None:
             mult = card.visit_mult.get(str(row["id"]), 1000)
-        sales_out[str(row["id"])] = weekly_sales(price, mult, int(row.get("promo", 0)), 0)
+        sales_out[str(row["id"])] = int(round(card_units(mult, 0) * price / 100.0))
     snap.public["player_weekly_sales"] = sales_out
 
 
@@ -440,9 +445,13 @@ def simulate(
     difficulty: str = "standard",
     player_style: str = "passive",
     ai_enabled: bool = True,
+    personalities: dict | None = None,
 ) -> SimResult:
-    snap, provider = make_snapshot(seed, difficulty=difficulty, ai_enabled=ai_enabled)
+    snap, provider = make_snapshot(
+        seed, difficulty=difficulty, ai_enabled=ai_enabled, personalities=personalities
+    )
     taken: list[str] = []
+    ceo_kinds: dict[str, list[str]] = {}
     reasons_ok = True
     for _ in range(weeks):
         inflation = int(snap.factors.get("95", 100))
@@ -452,6 +461,9 @@ def simulate(
             if not action.reason or len(action.reason) > 160:
                 reasons_ok = False
             taken.append(f"{snap.week}:{action.actor.id}:{action.kind}")
+            if action.actor.kind == "ceo":
+                chain_id = action.actor.id.split(":", 1)[1]
+                ceo_kinds.setdefault(chain_id, []).append(action.kind)
         apply_actions(snap, actions)
         if ai_enabled and difficulty != "off":
             provider.shopper_card(snap)
@@ -463,10 +475,18 @@ def simulate(
         snap.week = week_of(snap.day)
     cash = {}
     nets = {}
+    sales = {}
+    kinds: dict[str, list[str]] = {}
     if snap.ai is not None:
         for chain_id, chain in sorted(snap.ai.chains.items()):
             cash[chain_id] = chain.cash
             nets[chain_id] = chain.last_pnl.net
+            sales[chain_id] = chain.last_pnl.sales
+            person = snap.ai.personalities.get(chain.personality_id)
+            if person is None:
+                continue
+            kinds.setdefault(person.archetype, []).extend(ceo_kinds.get(chain_id, []))
+    player_sales = sum(int(value) for value in (snap.public.get("player_weekly_sales") or {}).values())
     return SimResult(
         seed=seed,
         difficulty=difficulty,
@@ -474,6 +494,9 @@ def simulate(
         actions=taken,
         final_cash=cash,
         nets=nets,
+        sales=sales,
+        player_sales=player_sales,
+        kinds_by_archetype=kinds,
         reasons_ok=reasons_ok,
     )
 

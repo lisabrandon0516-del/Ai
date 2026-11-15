@@ -1,13 +1,22 @@
-"""Closed-form 13-week projection.
+"""13-week projection.
 
-This is the cheap surrogate the minds look ahead on. It is not a fork of the
-game. The stand-in week uses the same weekly_net so a paired check stays
-inside the 15% band by construction. Money is rounded only at the return.
+With a city market and the shopper segments, sales and share come from the
+same logit multipliers as the Sunday card. ``weekly_net`` still turns those
+sales into cash. Without a market, the older single-elasticity surrogate
+remains so a caller that only has a visit multiplier still gets a number.
+Money is rounded only at the return.
 """
 
 from __future__ import annotations
 
 from open_late.ai.constants import BASE_WEEKLY_SALES, WEEKLY_RENT
+from open_late.ai.market import (
+    apply_chain_action,
+    apply_player_reply,
+    card_units,
+    chain_sales,
+    chain_share,
+)
 from open_late.ai.models import ChainPnL, Projection, RivalChain, RivalStore
 
 
@@ -105,8 +114,32 @@ def project_action(
     shock_bps: int = 0,
     horizon: int = 13,
     debt_delta: int = 0,
+    market: list[dict] | None = None,
+    segments: dict | None = None,
+    income_by_city: dict[str, int] | None = None,
+    player_type: str | None = None,
+    baseline_market: list[dict] | None = None,
 ) -> Projection:
     args = args or {}
+    if market is not None and segments is not None:
+        present = any(row.get("chain_id") == chain.chain_id for row in market)
+        if present or kind == "open_store":
+            return _project_logit(
+                chain,
+                gross_margin_bps=gross_margin_bps,
+                opex_bps=opex_bps,
+                kind=kind,
+                args=args,
+                opening_cost=opening_cost,
+                shock_bps=shock_bps,
+                horizon=horizon,
+                debt_delta=debt_delta,
+                market=market,
+                segments=segments,
+                income_by_city=income_by_city,
+                player_type=player_type,
+                baseline_market=baseline_market,
+            )
     price, promo, war, cut, cash, count = _effects(chain, kind, args, opening_cost)
     price = max(60, min(160, price))
     count = max(0, count)
@@ -173,6 +206,119 @@ def project_action(
     )
 
 
+def _bundle(
+    sales_map: dict[str, int],
+    *,
+    gross_margin_bps: int,
+    opex_bps: int,
+    promo: int,
+    war: int,
+    cut: int,
+    debt: int,
+) -> tuple[int, int]:
+    """Return (sales, net) across the chain's doors. Rent is charged per door."""
+    if not sales_map:
+        interest = int(round(max(0, debt) * 0.001))
+        return 0, -interest
+    debt_share = max(0, debt) // len(sales_map)
+    sales = 0
+    net = 0
+    for store_sales in sales_map.values():
+        store_net, _cogs, _opex = weekly_net(
+            store_sales,
+            gross_margin_bps,
+            opex_bps,
+            promo_depth=promo,
+            war_intensity=war,
+            cost_cut_pct=cut,
+            debt=debt_share,
+        )
+        sales += store_sales
+        net += store_net
+    return sales, net
+
+
+def _project_logit(
+    chain: RivalChain,
+    *,
+    gross_margin_bps: int,
+    opex_bps: int,
+    kind: str,
+    args: dict,
+    opening_cost: int,
+    shock_bps: int,
+    horizon: int,
+    debt_delta: int,
+    market: list[dict],
+    segments: dict,
+    income_by_city: dict[str, int] | None,
+    player_type: str | None,
+    baseline_market: list[dict] | None,
+) -> Projection:
+    _price, promo, war, cut, cash, _count = _effects(chain, kind, args, opening_cost)
+    city = str(args.get("city", ""))
+    acted = apply_chain_action(market, chain, kind, args, horizon=horizon)
+    if baseline_market is None:
+        base_rows = [dict(row) for row in market]
+    else:
+        base_rows = [dict(row) for row in baseline_market]
+    if player_type:
+        acted = apply_player_reply(acted, player_type, city)
+        base_rows = apply_player_reply(base_rows, player_type, city)
+    sales_map = chain_sales(acted, chain.chain_id, segments, income_by_city, shock_bps)
+    low_map = chain_sales(acted, chain.chain_id, segments, income_by_city, shock_bps - 1000)
+    high_map = chain_sales(acted, chain.chain_id, segments, income_by_city, shock_bps + 1000)
+    new_share = chain_share(acted, chain.chain_id, segments, income_by_city)
+    old_share = chain_share(base_rows, chain.chain_id, segments, income_by_city)
+    debt = max(0, chain.debt + debt_delta)
+    if kind == "raise_capital":
+        debt += int(args.get("amount", 0))
+    if kind == "pay_down_debt":
+        debt = max(0, debt - int(args.get("amount", 0)))
+    sales, net = _bundle(
+        sales_map,
+        gross_margin_bps=gross_margin_bps,
+        opex_bps=opex_bps,
+        promo=promo,
+        war=war,
+        cut=cut,
+        debt=debt,
+    )
+    _low_sales, low_net = _bundle(
+        low_map,
+        gross_margin_bps=gross_margin_bps,
+        opex_bps=opex_bps,
+        promo=promo,
+        war=war,
+        cut=cut,
+        debt=debt,
+    )
+    _high_sales, high_net = _bundle(
+        high_map,
+        gross_margin_bps=gross_margin_bps,
+        opex_bps=opex_bps,
+        promo=promo,
+        war=war,
+        cut=cut,
+        debt=debt,
+    )
+    contribution = net * horizon
+    p10 = min(low_net * horizon, contribution)
+    p90 = max(high_net * horizon, contribution)
+    cash_end = cash + contribution
+    p_neg = 1.0 if cash_end < 0 or cash + p10 < 0 else 0.0
+    return Projection(
+        sales=sales,
+        contribution=contribution,
+        weekly_net=net,
+        share_change_bps=int(round((new_share - old_share) * 10_000)),
+        cash_end=cash_end,
+        p_cash_negative=p_neg,
+        p10_contribution=p10,
+        p90_contribution=p90,
+    )
+
+
 def store_pnl(
     store: RivalStore,
     *,
@@ -184,8 +330,8 @@ def store_pnl(
     debt_share: int,
     shock_bps: int = 0,
 ) -> ChainPnL:
-    price = store.price_index - (war_intensity // 2 if war_intensity else 0)
-    sales = weekly_sales(price, visit_mult, store.promo_depth, shock_bps)
+    price = max(1, store.price_index - (war_intensity // 2 if war_intensity else 0))
+    sales = int(round(card_units(visit_mult, shock_bps) * price / 100.0))
     net, cogs, opex = weekly_net(
         sales,
         gross_margin_bps,

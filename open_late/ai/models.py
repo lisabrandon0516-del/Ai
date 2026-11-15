@@ -173,6 +173,11 @@ class LogRow(BaseModel):
         result = payload.get("result")
         if isinstance(result, dict):
             result.pop("action", None)
+        action = payload.get("action")
+        if isinstance(action, dict):
+            # The live action still carries the score. The log does not,
+            # or a 26-week stern save crosses the 150 KB cap.
+            action.pop("utility_terms", None)
         return payload
 
 

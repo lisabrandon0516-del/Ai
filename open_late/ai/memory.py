@@ -6,6 +6,8 @@ guarded by the week number so a repeated Sunday call does not double-count.
 
 from __future__ import annotations
 
+import random
+
 from open_late.ai.constants import MEMORY_MOVES, PLAYER_TYPES
 from open_late.ai.models import ActorMemory
 
@@ -24,6 +26,18 @@ def belief_means(belief: dict[str, float]) -> dict[str, float]:
     alphas = {name: float(belief.get(name, 1.0)) for name in PLAYER_TYPES}
     total = sum(alphas.values()) or 1.0
     return {name: alphas[name] / total for name in PLAYER_TYPES}
+
+
+def sample_player_type(rng: random.Random, means: dict[str, float]) -> str:
+    """Draw a player type in PLAYER_TYPES order. One draw, no second stream."""
+    roll = rng.random()
+    cursor = 0.0
+    chosen = PLAYER_TYPES[-1]
+    for name in PLAYER_TYPES:
+        cursor += float(means.get(name, 0.0))
+        if roll <= cursor:
+            return name
+    return chosen
 
 
 def update_belief(memory: ActorMemory, event_kind: str) -> None:
