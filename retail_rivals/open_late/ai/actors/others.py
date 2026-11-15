@@ -248,6 +248,7 @@ def town_actions(
     day: int,
     permits: list[dict],
     factors: dict[str, int],
+    doors: dict[str, int] | None = None,
 ) -> list[Action]:
     actions: list[Action] = []
     for permit in sorted(permits, key=lambda row: (str(row.get("city", "")), str(row.get("applicant", "")))):
@@ -264,34 +265,39 @@ def town_actions(
             )
         )
     if week > 0 and week % 4 == 0:
-        # One rule a month. Neutral factors used to produce a zero delta, so
-        # the town never moved anything the forecast could read.
-        rules = (
-            (17, "schedule_road_work", "flag"),
-            (107, "propose_wage_floor", "intensity"),
-            (104, "sales_tax_drift", "walk"),
-            (108, "set_fair_schedule", "walk"),
-            (109, "schedule_inspection", "flag"),
-            (110, "set_bag_rule", "flag"),
-        )
-        fid, kind, mode = rules[((week // 4) - 1) % len(rules)]
-        actor = ActorRef(kind="town", id="town:national")
-        if mode == "flag":
-            args: dict = {"factor_id": fid, "value": 1, "cities": list(CITIES)}
-        elif mode == "intensity":
-            args = {"factor_id": fid, "value": 4, "cities": list(CITIES)}
-        else:
-            current = int(factors.get(str(fid), 100))
-            args = {"factor_id": fid, "delta": 2 if current < 106 else -2, "cities": list(CITIES)}
-        actions.append(
-            Action(
-                actor=actor,
-                kind=kind,
-                args=args,
-                reason=town_reason("", kind),
-            )
-        )
+        counts = doors or {}
+        for city in CITIES:
+            actions.append(_local_rule(seed, week, city, factors, int(counts.get(city, 0))))
     return actions
+
+
+def _local_rule(seed: int, week: int, city: str, factors: dict[str, int], doors: int) -> Action:
+    """One regulation for this city, from its doors and income, not a national rotation."""
+    income = int(factors.get(f"14:{city}", factors.get("14", 100)))
+    if doors >= 4:
+        fid, kind, mode = 17, "schedule_road_work", "flag"
+    elif doors >= 2:
+        fid, kind, mode = 109, "schedule_inspection", "flag"
+    elif income >= 108:
+        wage = int(factors.get(f"107:{city}", factors.get("107", 0)))
+        if wage <= 0:
+            fid, kind, mode = 107, "propose_wage_floor", "intensity"
+        else:
+            fid, kind, mode = 108, "set_fair_schedule", "walk"
+    elif income <= 97:
+        fid, kind, mode = 110, "set_bag_rule", "flag"
+    else:
+        fid, kind, mode = 104, "sales_tax_drift", "walk"
+    step = 1 + ai_rng(seed, "ai.town", week, city, "rule").randrange(2)
+    actor = ActorRef(kind="town", id=f"town:{city}")
+    if mode == "flag":
+        args: dict = {"factor_id": fid, "value": 1, "cities": [city]}
+    elif mode == "intensity":
+        args = {"factor_id": fid, "value": 2 + step, "cities": [city]}
+    else:
+        current = int(factors.get(f"{fid}:{city}", factors.get(str(fid), 100)))
+        args = {"factor_id": fid, "delta": step if current < 106 else -step, "cities": [city]}
+    return Action(actor=actor, kind=kind, args=args, reason=town_reason(city, kind))
 
 
 def choose_northline(

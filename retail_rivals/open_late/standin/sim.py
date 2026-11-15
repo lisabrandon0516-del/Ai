@@ -397,6 +397,8 @@ def settle(snap: Snapshot) -> None:
             continue
         sales = cogs = opex = net = 0
         debt_share = chain.debt // len(open_stores)
+        if chain.cost_cut_until_week and snap.week > chain.cost_cut_until_week:
+            chain.cost_cut_pct = 0
         cut = chain.cost_cut_pct if snap.week <= chain.cost_cut_until_week else 0
         for store in open_stores:
             if store.promo_until_week and snap.week > store.promo_until_week:
@@ -414,6 +416,7 @@ def settle(snap: Snapshot) -> None:
                 cost_cut_pct=cut,
                 debt_share=debt_share,
                 factors=snap.factors,
+                shelf_index=person.price_index,
             )
             store.weekly_sales = pnl.sales
             sales += pnl.sales
@@ -443,7 +446,7 @@ def _apply_town_rule(snap: Snapshot, action: Action) -> None:
     """Write the town's rule onto the factor card the forecast and the books read."""
     fid = int(action.args.get("factor_id", 0))
     cities = [str(city) for city in action.args.get("cities") or []]
-    keys = [str(fid)] + [f"{fid}:{city}" for city in cities]
+    keys = [f"{fid}:{city}" for city in cities] if cities else [str(fid)]
     if "value" in action.args:
         value = int(action.args["value"])
         for key in keys:

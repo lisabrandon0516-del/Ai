@@ -26,13 +26,18 @@ from open_late.standin.sim import apply_actions, make_snapshot, simulate
 
 
 def test_opening_cost_uses_the_market_and_factor_95():
+    from open_late.ai.costs import SUPER_CENTER_DEAREST
+
     base = city_opening_cost("seattle", {"95:seattle": 100})
-    assert base == MARKETS["seattle"].opening_cost
-    assert base == 55_000 * 15
+    assert base == SUPER_CENTER_DEAREST
+    assert base > MARKETS["seattle"].opening_cost
     hot = city_opening_cost("seattle", {"95:seattle": 140})
     assert hot == int(round(base * 1.4))
+    houston = city_opening_cost("houston", {"95:houston": 100})
+    assert MARKETS["houston"].opening_cost < MARKETS["seattle"].opening_cost
+    assert 15_000_000 <= houston < base
     cool = city_opening_cost("houston", {"95:houston": 90})
-    assert cool == int(round(MARKETS["houston"].opening_cost * 0.9))
+    assert cool == int(round(houston * 0.9))
     assert city_opening_cost("evansville", {"95:evansville": 100}) == 0
 
 
@@ -205,11 +210,17 @@ def test_board_fires_a_ceo_who_misses_the_margin():
 
 def test_town_rule_changes_a_factor_the_forecast_reads():
     snap, _provider = make_snapshot(1, difficulty="calm")
-    actions = town_actions(seed=snap.seed, week=4, day=22, permits=[], factors=dict(snap.factors))
-    rules = [action for action in actions if action.kind != "permit"]
-    assert rules and rules[0].kind == "schedule_road_work"
+    doors = {city: 0 for city in ("evansville", "seattle", "houston", "las_vegas", "naperville")}
+    doors["houston"] = 6
+    actions = town_actions(
+        seed=snap.seed, week=4, day=22, permits=[], factors=dict(snap.factors), doors=doors
+    )
+    rules = {action.args["cities"][0]: action for action in actions if action.kind != "permit"}
+    assert rules["houston"].kind == "schedule_road_work"
+    assert rules["naperville"].kind == "propose_wage_floor"
+    assert rules["evansville"].kind != rules["houston"].kind
     before = traffic_mult(snap.factors, "houston")
-    apply_actions(snap, rules)
+    apply_actions(snap, [rules["houston"]])
     assert snap.factors["17:houston"] == 1
     assert traffic_mult(snap.factors, "houston") < before
 
@@ -219,6 +230,120 @@ def test_discount_and_premium_do_not_move_alike():
     leader = result.kinds_by_archetype["price_leader"]
     premium = result.kinds_by_archetype["premium"]
     assert leader != premium
+
+
+def test_a_premium_chain_does_not_race_to_the_floor():
+    people, _digest = load_personalities()
+    person = people["premium_v1"]
+    chain = RivalChain(
+        chain_id="bluestar",
+        personality_id=person.id,
+        price_index=90,
+        cash=20_000_000,
+        cooldowns={"big_call": 99, "opening": 99},
+        stores=[
+            RivalStore(
+                id="store:bluestar:houston:1",
+                city="houston",
+                opened_on=1,
+                status="open",
+                price_index=90,
+                distance_band=1,
+            )
+        ],
+    )
+    market = [
+        {
+            "id": "player-houston",
+            "city": "houston",
+            "owner": "player",
+            "chain_id": "player",
+            "price_index": 100,
+            "distance_band": 1,
+            "trust": 55,
+            "promo": 0,
+            "stockouts": 0,
+        },
+        {
+            "id": "store:bluestar:houston:1",
+            "city": "houston",
+            "owner": "rival",
+            "chain_id": "bluestar",
+            "price_index": 90,
+            "distance_band": 1,
+            "trust": 70,
+            "promo": 0,
+            "stockouts": 0,
+        },
+    ]
+    chosen = choose_ceo_action(
+        chain,
+        person,
+        ActorMemory(actor_id="ceo:bluestar"),
+        seed=1,
+        week=3,
+        difficulty="calm",
+        opening_cost=30_000_000,
+        wars={},
+        player_price={"houston": 100},
+        market=market,
+        segments=load_segments(),
+        factors={"88:houston": 100, "89:houston": 100},
+    )
+    assert chosen.kind == "set_chain_price_index"
+    assert int(chosen.args["delta"]) > 0
+
+
+def test_chains_do_not_open_on_the_same_sunday():
+    snap, _provider = make_snapshot(1, difficulty="stern")
+    assert snap.ai is not None
+    ready = [int(chain.cooldowns.get("opening", 0)) for chain in snap.ai.chains.values()]
+    assert len(set(ready)) == len(ready)
+    result = simulate(5, weeks=24, difficulty="standard")
+    opens = [row for row in result.actions if row.endswith(":open_store")]
+    assert len(opens) <= 3
+
+
+def test_rent_is_not_charged_twice():
+    from open_late.ai.forecast import store_pnl
+
+    people, _digest = load_personalities()
+    person = people["premium_v1"]
+    store = RivalStore(
+        id="store:bluestar:seattle:1",
+        city="seattle",
+        opened_on=1,
+        status="open",
+        price_index=person.price_index,
+    )
+    neutral = {"88:seattle": 100, "89:seattle": 100}
+    hot = {"88:seattle": 130, "89:seattle": 100}
+    base = store_pnl(
+        store,
+        gross_margin_bps=person.gross_margin_bps,
+        opex_bps=person.opex_bps,
+        visit_mult=1000,
+        war_intensity=0,
+        cost_cut_pct=0,
+        debt_share=0,
+        factors=neutral,
+        shelf_index=person.price_index,
+    )
+    stressed = store_pnl(
+        store,
+        gross_margin_bps=person.gross_margin_bps,
+        opex_bps=person.opex_bps,
+        visit_mult=1000,
+        war_intensity=0,
+        cost_cut_pct=0,
+        debt_share=0,
+        factors=hot,
+        shelf_index=person.price_index,
+    )
+    full_rent = weekly_rent("seattle", neutral)
+    # Factor 88 moves the occupancy slice of opex, not a second full lease.
+    assert stressed.opex > base.opex
+    assert stressed.opex - base.opex < full_rent // 2
 
 
 def test_stern_sunday_fits_the_budget():

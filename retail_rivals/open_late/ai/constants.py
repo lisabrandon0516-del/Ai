@@ -89,10 +89,10 @@ CHAIN_COUNTS: dict[str, int] = {"off": 0, "calm": 2, "standard": 3, "stern": 4}
 
 # Fixed iteration counts. Never wall-clock. Calm searches less, stern more.
 # The counts stay under the Sunday budget (150 ms mean, 400 ms worst).
-SEARCH_ITERS: dict[str, int] = {"off": 0, "calm": 4, "standard": 6, "stern": 8}
+SEARCH_ITERS: dict[str, int] = {"off": 0, "calm": 8, "standard": 12, "stern": 16}
 
 # Top myopic big-call candidates that receive expectimax, per chain per week.
-SEARCH_SHORTLIST = 2
+SEARCH_SHORTLIST = 3
 
 BIG_CALLS: frozenset[str] = frozenset(
     {"open_store", "close_store", "start_price_war", "raise_capital"}

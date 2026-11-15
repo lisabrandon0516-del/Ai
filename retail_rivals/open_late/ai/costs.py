@@ -37,12 +37,21 @@ def opening_inflation(factors: dict[str, int] | None, city: str) -> float:
     return max(0.9, min(1.4, factor_value(factors, 95, city) / 100.0))
 
 
+# The game's sized lease is a shop door (Seattle $825,000). A rival supercenter
+# keeps that city's place in the table and scales it so the dearest city is
+# $30 million. Factor 95 still multiplies the result.
+SUPER_CENTER_DEAREST = 30_000_000
+
+
 def city_opening_cost(city: str, factors: dict[str, int] | None = None) -> int:
-    """Sized market opening cost times build-out inflation. Evansville is 0."""
+    """Location-scaled supercenter cost times build-out inflation. Evansville is 0."""
     market = MARKETS[city]
-    if market.opening_cost <= 0:
+    base = market.opening_cost
+    if base <= 0:
         return 0
-    return int(round(market.opening_cost * opening_inflation(factors, city)))
+    seattle = MARKETS["seattle"].opening_cost
+    scaled = (base * SUPER_CENTER_DEAREST) // seattle
+    return int(round(scaled * opening_inflation(factors, city)))
 
 
 def opening_cost_table(factors: dict[str, int] | None = None) -> dict[str, int]:

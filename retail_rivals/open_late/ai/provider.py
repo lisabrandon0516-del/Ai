@@ -205,6 +205,7 @@ class RetailAI:
                 day=snap.day,
                 permits=list(snap.public.get("permits") or []),
                 factors=snap.factors,
+                doors=_door_counts(snap),
             )
         )
         if snap.northline_smart:
@@ -355,10 +356,12 @@ def _build_chain(snap: Snapshot, state: AIState, chain_id: str, index: int) -> R
         personality_id=person.id,
         price_index=person.price_index,
         cash=15_000_000,
-        debt=3_000_000 if archetype == "expander" else 0,
+        debt=0,
         credit_line=10_000_000,
         stores=[store],
         mandate=Mandate(growth_vs_profit=_GROWTH[archetype]),
+        # Stagger the first big call so chains do not open on the same Sunday.
+        cooldowns={"opening": snap.week + index * 3, "big_call": snap.week + index * 2},
     )
 
 
@@ -431,6 +434,22 @@ def _shelf_price(price: int, cut: int) -> int:
     if cut <= 0:
         return price
     return clamp_price(price - cut)
+
+
+def _door_counts(snap: Snapshot) -> dict[str, int]:
+    counts = {city: 0 for city in CITIES}
+    for row in snap.public.get("player_stores") or []:
+        city = str(row.get("city") or "")
+        if city in counts:
+            counts[city] += 1
+    if snap.ai is not None:
+        for chain in snap.ai.chains.values():
+            if chain.status == "bankrupt":
+                continue
+            for store in chain.stores:
+                if store.status in {"open", "building"} and store.city in counts:
+                    counts[store.city] += 1
+    return counts
 
 
 def _market_stores(snap: Snapshot) -> list[dict]:

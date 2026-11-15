@@ -122,6 +122,9 @@ def ceo_menu(
         rows.append(Action(actor=actor, kind="copy_best_seller", args={"city": store.city}))
         rows.append(Action(actor=actor, kind="defend", args={"city": store.city, "dept": "grocery"}))
     for pct in (1, 2, 3, 4):
+        # A cut that is already in force is not a new decision.
+        if pct <= chain.cost_cut_pct and week <= int(chain.cost_cut_until_week):
+            continue
         rows.append(Action(actor=actor, kind="cut_costs", args={"pct": pct}))
     if big_call_ready(chain, week) and chain.debt + raise_amount <= chain.credit_line:
         rows.append(Action(actor=actor, kind="raise_capital", args={"amount": raise_amount}))

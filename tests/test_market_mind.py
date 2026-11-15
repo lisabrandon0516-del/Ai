@@ -205,7 +205,8 @@ def test_expectimax_answers_the_sampled_player_then_replies():
         income_by_city={"houston": 100, "seattle": 100},
         player_type="passive",
     )
-    assert passive_value > _utility(one_step_terms, person.weights)
+    # A follow-up that gives up profit to buy share does not beat holding the new door.
+    assert passive_value == pytest.approx(_utility(one_step_terms, person.weights))
     assert any(follow.kind == "set_chain_price_index" for follow in follow_up_actions(chain, action))
 
 
@@ -297,10 +298,30 @@ def test_a_fighter_belief_changes_the_weekly_choice():
         ),
         **common,
     )
-    assert fighter.kind == "set_chain_price_index"
-    assert int(fighter.args["delta"]) > 0
-    assert quiet.kind == "set_chain_price_index"
-    assert int(quiet.args["delta"]) < 0
+    # Below the shelf the margin is already broken, so both beliefs climb
+    # back toward it. The belief still changes what a deep cut is worth.
+    assert fighter.kind == "set_chain_price_index" and int(fighter.args["delta"]) > 0
+    assert quiet.kind == "set_chain_price_index" and int(quiet.args["delta"]) > 0
+    from open_late.ai.actors.ceo import _terms
+    from open_late.ai.models import Action, ActorRef
+
+    # A cut below the shelf earns no share against either belief. It still
+    # costs a different amount of profit once the player's reply is priced in.
+    cut = Action(actor=ActorRef(kind="ceo", id="ceo:bluestar"), kind="set_chain_price_index", args={"delta": -6})
+    kwargs = dict(
+        week=3,
+        opening_cost=6_000_000,
+        visit_mult=1000,
+        shock_bps=0,
+        market=market,
+        segments=load_segments(),
+        income_by_city={"houston": 100},
+    )
+    fighter_cut = _terms(cut, chain, person, ActorMemory(actor_id="ceo:bluestar"), player_type="price_fighter", **kwargs)
+    quiet_cut = _terms(cut, chain, person, ActorMemory(actor_id="ceo:bluestar"), player_type="passive", **kwargs)
+    assert fighter_cut["share_change"] == 0
+    assert quiet_cut["share_change"] == 0
+    assert fighter_cut["contribution_13w"] > quiet_cut["contribution_13w"]
 
 
 def test_supplied_weights_change_the_stand_in():

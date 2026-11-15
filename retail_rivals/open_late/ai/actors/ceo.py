@@ -8,6 +8,8 @@ our best follow-up. Temperature 0 is argmax with the spec tie-break.
 
 from __future__ import annotations
 
+import hashlib
+
 from open_late.ai.constants import BIG_CALLS, PLAYER_TYPES, PRICE_INDEX_MAX, PRICE_INDEX_MIN, SEARCH_ITERS, SEARCH_SHORTLIST
 from open_late.ai.forecast import _effects, project_action
 from open_late.ai.legal import ceo_menu, clamp_price
@@ -67,11 +69,32 @@ def _mandate_fit(
         before = abs(chain_price - shelf)
         after = abs(chain_price + delta - shelf)
         if after < before:
-            fit += 0.35
+            fit += 0.8
         elif after > before:
-            fit -= 0.25
+            fit -= 0.6
         return fit
     return 0.25
+
+
+def _city_posture(
+    archetype: str,
+    city: str,
+    chain: RivalChain,
+    income_by_city: dict[str, int] | None,
+) -> float:
+    """Break a tie between cities. Income fit plus a stable per-chain nudge."""
+    income = int((income_by_city or {}).get(city, 100))
+    here = sum(1 for store in chain.stores if store.city == city and store.status in {"open", "building"})
+    if archetype == "premium":
+        fit = (income - 100) / 20.0
+    elif archetype == "price_leader":
+        fit = (100 - income) / 20.0
+    else:
+        fit = 0.8 if here == 0 else -0.4
+    fit -= 0.6 * here
+    digest = hashlib.blake2s(f"{chain.chain_id}|{city}".encode(), digest_size=2).digest()
+    nudge = (int.from_bytes(digest, "little") / 65535.0 - 0.5) * 0.6
+    return fit + nudge
 
 
 def _opening_bill(action: Action, opening_cost: int) -> int:
@@ -220,12 +243,17 @@ def _terms(
         player_type=player_type,
         baseline_market=baseline_market,
         factors=factors,
+        shelf_index=personality.price_index,
     )
     last = ""
     if memory.moves:
         last = str(memory.moves[-1].get("kind", ""))
+    contribution = projected.contribution
+    if action.kind == "remodel":
+        # The forecast does not grow sales for a remodel, so the check is a real cost.
+        contribution -= int(action.args.get("cost", 0))
     return {
-        "contribution_13w": projected.contribution / 1_000_000.0,
+        "contribution_13w": contribution / 1_000_000.0,
         # /500 keeps one share-point near the weight scale the personalities
         # shipped with. Raw basis points would drown every other term.
         "share_change": projected.share_change_bps / 500.0,
@@ -236,6 +264,11 @@ def _terms(
             personality.archetype,
             chain_price=chain.price_index,
             shelf=personality.price_index,
+        )
+        + (
+            _city_posture(personality.archetype, str(action.args.get("city", "")), chain, income_by_city)
+            if action.kind == "open_store"
+            else 0.0
         ),
         "grudge": (memory.grudge / 100.0) * _hostility(action),
         "variety": -1.0 if last == action.kind else 0.0,
