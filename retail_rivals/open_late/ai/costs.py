@@ -8,9 +8,16 @@ and the labor terms that include the wage-floor event.
 
 from __future__ import annotations
 
-from open_late.corporate import MARKETS
-from open_late.economy import SALES_CAP, _cap_mult, _key, _starting_values
-from open_late.economy_e3 import LABOR_CAP, RENT_CAP
+from open_late.ai_bridge import (
+    CITIES,
+    LABOR_CAP,
+    RENT_CAP,
+    SALES_CAP,
+    cap_mult as _cap_mult,
+    factor_key as _key,
+    market_table,
+    starting_factors,
+)
 
 # Event flags are 0 when the board has not stored them. Index factors are 100.
 _FLAG_DEFAULT = {17: 0, 107: 0, 109: 0, 110: 0}
@@ -18,7 +25,7 @@ _FLAG_DEFAULT = {17: 0, 107: 0, 109: 0, 110: 0}
 
 def game_factors() -> dict[str, int]:
     """The new-game factor card, including city keys and event flags."""
-    return _starting_values()
+    return starting_factors()
 
 
 def factor_value(factors: dict[str, int] | None, fid: int, city: str | None = None) -> int:
@@ -45,17 +52,17 @@ SUPER_CENTER_DEAREST = 30_000_000
 
 def city_opening_cost(city: str, factors: dict[str, int] | None = None) -> int:
     """Location-scaled supercenter cost times build-out inflation. Evansville is 0."""
-    market = MARKETS[city]
-    base = market.opening_cost
+    table = market_table()
+    base = table[city].build_cost
     if base <= 0:
         return 0
-    seattle = MARKETS["seattle"].opening_cost
+    seattle = table["seattle"].build_cost
     scaled = (base * SUPER_CENTER_DEAREST) // seattle
     return int(round(scaled * opening_inflation(factors, city)))
 
 
 def opening_cost_table(factors: dict[str, int] | None = None) -> dict[str, int]:
-    return {city: city_opening_cost(city, factors) for city in MARKETS}
+    return {city: city_opening_cost(city, factors) for city in CITIES}
 
 
 def rent_multiplier(factors: dict[str, int] | None, city: str) -> float:
@@ -67,7 +74,7 @@ def rent_multiplier(factors: dict[str, int] | None, city: str) -> float:
 
 
 def weekly_rent(city: str, factors: dict[str, int] | None = None) -> int:
-    return int(round(MARKETS[city].rent_weekly * rent_multiplier(factors, city)))
+    return int(round(market_table()[city].rent_weekly * rent_multiplier(factors, city)))
 
 
 def traffic_mult(factors: dict[str, int] | None, city: str) -> float:
