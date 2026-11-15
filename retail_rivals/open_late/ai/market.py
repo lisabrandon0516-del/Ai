@@ -114,12 +114,12 @@ def apply_chain_action(
     elif kind == "close_store":
         sid = str(args.get("store_id", ""))
         rows = [row for row in rows if row.get("id") != sid]
-    elif kind == "reopen_store":
-        sid = str(args.get("store_id", ""))
-        if not any(row.get("id") == sid for row in rows):
+    elif kind == "reenter":
+        city = str(args.get("city", ""))
+        if city and not any(row.get("city") == city and row.get("chain_id") == chain.chain_id for row in rows):
             rows.append(
                 {
-                    "id": sid,
+                    "id": f"store:{chain.chain_id}:{city}:new",
                     "city": city,
                     "owner": "rival",
                     "chain_id": chain.chain_id,
@@ -129,7 +129,7 @@ def apply_chain_action(
                     "promo": 0,
                     "stockouts": 0,
                     "focus": "grocery",
-                    "ramp": 1.0,
+                    "status": "building",
                 }
             )
     elif kind == "open_store":

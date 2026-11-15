@@ -158,6 +158,19 @@ def _append_log(snap: Snapshot, action: Action, result: ActionResult) -> None:
     snap.ai.log = [row for row in snap.ai.log if row.week >= floor]
 
 
+def _write_off(chain, day: int) -> None:
+    """Bankruptcy clears both books, the drawer, and every door."""
+    chain.status = "bankrupt"
+    chain.bankrupt_on = day
+    chain.revolver_debt = 0
+    chain.build_loans = []
+    chain.cash = 0
+    chain.refresh_debt()
+    for store in chain.stores:
+        if store.status != "closed":
+            store.status = "closed"
+
+
 def _apply_one(snap: Snapshot, action: Action) -> ActionResult:
     kind = action.kind
     if snap.ai is None:
@@ -246,11 +259,7 @@ def _apply_one(snap: Snapshot, action: Action) -> ActionResult:
                 nxt = pnl.net * 13
             if not last_store_cannot_earn(chain, nxt):
                 return ActionResult(action=action, accepted=False, note="rejected: last store")
-            chain.status = "bankrupt"
-            chain.bankrupt_on = snap.day
-            for other in chain.stores:
-                if other.status != "closed":
-                    other.status = "closed"
+            _write_off(chain, snap.day)
             stamp_cooldowns(chain, action, snap.week)
             return ActionResult(action=action, accepted=True, note="bankrupt")
         store.status = "closed"
@@ -348,29 +357,39 @@ def _apply_one(snap: Snapshot, action: Action) -> ActionResult:
     if kind == "declare_distress" and chain is not None:
         chain.status = "distressed"
         return ActionResult(action=action, accepted=True, note="ok")
-    if kind == "reopen_store" and chain is not None:
-        store = _store(chain, str(action.args.get("store_id", "")))
-        if store is None or store.status != "closed" or chain.status == "bankrupt":
-            return ActionResult(action=action, accepted=False, note="rejected: store")
-        store.status = "open"
-        return ActionResult(action=action, accepted=True, note="ok")
     if kind == "reenter" and chain is not None:
-        chain.status = "active"
+        from open_late.ai.constants import ENTRANT_CASH, ENTRANT_CREDIT_LINE
+        from open_late.ai.models import BuildLoan
+
+        city = str(action.args.get("city", ""))
+        cost = int(action.args.get("cost", 0))
+        loan = int(action.args.get("loan", 0))
+        equity = int(action.args.get("equity", cost - loan))
+        if not city or cost <= 0 or equity > ENTRANT_CASH or loan > int(cost * 0.70):
+            return ActionResult(action=action, accepted=False, note="rejected: no door")
         chain.revolver_debt = 0
         chain.build_loans = []
-        chain.refresh_debt()
-        chain.cash = max(0, chain.cash)
+        chain.cash = ENTRANT_CASH - equity
+        chain.credit_line = ENTRANT_CREDIT_LINE
+        chain.status = "active"
         chain.bankrupt_on = None
-        closed = [store for store in chain.stores if store.status == "closed"]
-        if closed and not any(store.status == "open" for store in chain.stores):
-            closed[0].status = "open"
+        existing = [store for store in chain.stores if store.city == city]
+        store = RivalStore(
+            id=f"store:{chain.chain_id}:{city}:{len(existing) + 1}",
+            city=city,
+            opened_on=snap.day + 14,
+            status="building",
+            distance_band=2,
+            price_index=chain.price_index,
+            focus_dept="grocery",
+        )
+        chain.stores.append(store)
+        if loan > 0:
+            chain.build_loans.append(BuildLoan(store_id=store.id, original=loan, principal=loan))
+        chain.refresh_debt()
         return ActionResult(action=action, accepted=True, note="ok")
     if kind == "file_bankruptcy" and chain is not None:
-        chain.status = "bankrupt"
-        chain.bankrupt_on = snap.day
-        for store in chain.stores:
-            if store.status != "closed":
-                store.status = "closed"
+        _write_off(chain, snap.day)
         return ActionResult(action=action, accepted=True, note="ok")
     if kind == "set_local_price" and chain is not None:
         store = _store(chain, str(action.args.get("store_id", "")))

@@ -94,6 +94,8 @@ BUILD_LTV = 0.70
 BUILD_TERM_WEEKS = 1040
 MIN_CASH_WEEKS = 4
 MIN_LIQUIDITY_WEEKS = 13
+ENTRANT_CASH = 15_000_000
+ENTRANT_CREDIT_LINE = 10_000_000
 
 # Fixed iteration counts. Never wall-clock. Calm searches less, stern more.
 # The counts stay under the Sunday budget (150 ms mean, 400 ms worst).

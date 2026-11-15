@@ -14,6 +14,8 @@ from open_late.ai.constants import (
     BUILD_TERM_WEEKS,
     BUILD_WEEKLY_RATE,
     CITIES,
+    ENTRANT_CASH,
+    ENTRANT_CREDIT_LINE,
     DEPARTMENTS,
     MIN_CASH_WEEKS,
     MIN_LIQUIDITY_WEEKS,
@@ -82,6 +84,52 @@ def build_loan_terms(
     return True, loan
 
 
+def entrant_door(
+    chain: RivalChain,
+    personality,
+    factors: dict[str, int] | None,
+    opening_costs: dict[str, int] | None,
+) -> dict | None:
+    """The first city that passes the same build rules, or nothing."""
+    from open_late.ai.forecast import store_pnl
+    from open_late.ai.models import RivalStore
+
+    probe = chain.model_copy(deep=True)
+    probe.cash = ENTRANT_CASH
+    probe.revolver_debt = 0
+    probe.build_loans = []
+    probe.credit_line = ENTRANT_CREDIT_LINE
+    probe.refresh_debt()
+    ebitda = trailing_ebitda(probe)
+    for city in CITIES:
+        cost = int((opening_costs or {}).get(city, 0))
+        if cost <= 0:
+            continue
+        store = RivalStore(
+            id=f"probe:{city}",
+            city=city,
+            opened_on=0,
+            status="open",
+            price_index=probe.price_index,
+        )
+        pnl = store_pnl(
+            store,
+            gross_margin_bps=personality.gross_margin_bps,
+            opex_bps=personality.opex_bps,
+            visit_mult=1000,
+            war_intensity=0,
+            cost_cut_pct=0,
+            debt_share=0,
+            factors=factors,
+            shelf_index=personality.price_index,
+        )
+        allowed, loan = build_loan_terms(probe, cost, pnl.cogs + pnl.opex, pnl.net, ebitda)
+        if not allowed:
+            continue
+        return {"city": city, "cost": cost, "loan": loan, "equity": cost - loan}
+    return None
+
+
 def big_call_ready(chain: RivalChain, week: int) -> bool:
     return _ready(chain, "big_call", week)
 
@@ -136,16 +184,6 @@ def ceo_menu(
                     args={"city": city, "site_band": 2, "cost": cost, "loan": loan, "equity": cost - loan},
                 )
             )
-    closed = [store for store in chain.stores if store.status == "closed"]
-    if not open_now and closed:
-        store = closed[0]
-        rows.append(
-            Action(
-                actor=actor,
-                kind="reopen_store",
-                args={"store_id": store.id, "city": store.city},
-            )
-        )
     for store in chain.stores:
         if store.status != "open":
             continue

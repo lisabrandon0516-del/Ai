@@ -26,17 +26,24 @@ def board_actions(
     seed: int,
     week: int,
     personalities: dict[str, Personality],
+    factors: dict[str, int] | None = None,
+    opening_costs: dict[str, int] | None = None,
 ) -> list[Action]:
     actor = ActorRef(kind="board", id=f"board:{chain.chain_id}")
     if chain.status == "bankrupt":
         locked = chain.bankrupt_on is None or week < week_of(chain.bankrupt_on) + 52
         if locked:
             return []
+        from open_late.ai.legal import entrant_door
+
+        offer = entrant_door(chain, personality, factors, opening_costs)
+        if offer is None:
+            return []
         memory.counters["filed"] = 0
         memory.counters["declared"] = 0
         memory.counters["weeks_cash_negative"] = 0
         memory.counters["weeks_distressed"] = 0
-        return [_board(actor, chain, "reenter", {})]
+        return [_board(actor, chain, "reenter", offer)]
     if memory.counters.get("cash_week") != week:
         if chain.cash < 0:
             memory.counters["weeks_cash_negative"] = memory.counters.get("weeks_cash_negative", 0) + 1

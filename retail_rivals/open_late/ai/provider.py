@@ -122,6 +122,8 @@ class RetailAI:
                     seed=snap.seed,
                     week=snap.week,
                     personalities=state.personalities,
+                    factors=week_ctx.factors,
+                    opening_costs=week_ctx.opening_costs,
                 )
             )
         for chain_id in acting:

@@ -417,7 +417,7 @@ def test_a_chain_cannot_close_its_only_store():
     assert store.status == "open"
 
 
-def test_a_storeless_chain_can_reopen():
+def test_a_storeless_chain_is_not_reopened():
     snap, _provider = make_snapshot(1, difficulty="calm")
     assert snap.ai is not None
     chain = next(iter(snap.ai.chains.values()))
@@ -435,9 +435,9 @@ def test_a_storeless_chain_can_reopen():
         wars={},
         player_price={},
     )
-    assert chosen.kind == "reopen_store"
-    apply_actions(snap, [chosen])
-    assert chain.stores[0].status == "open"
+    assert chosen.kind != "reopen_store"
+    assert all(store.status != "open" or store.status == "closed" for store in chain.stores)
+    assert chain.stores[0].status == "closed"
 
 
 def test_a_bankrupt_chain_returns_after_the_lockout():
@@ -446,21 +446,75 @@ def test_a_bankrupt_chain_returns_after_the_lockout():
     chain = next(iter(snap.ai.chains.values()))
     chain.status = "bankrupt"
     chain.bankrupt_on = 1
-    chain.debt = 2_000_000
+    chain.revolver_debt = 2_000_000
     chain.cash = -50_000
+    chain.refresh_debt()
     chain.stores[0].status = "closed"
     person = snap.ai.personalities[chain.personality_id]
     memory = ActorMemory(actor_id=f"board:{chain.chain_id}", counters={"filed": 1})
     early = board_actions(chain, memory, person, seed=1, week=40, personalities=snap.ai.personalities)
     assert all(action.kind != "reenter" for action in early)
-    late = board_actions(chain, memory, person, seed=1, week=53, personalities=snap.ai.personalities)
+    stayed = board_actions(
+        chain,
+        memory,
+        person,
+        seed=1,
+        week=53,
+        personalities=snap.ai.personalities,
+        factors=snap.factors,
+        opening_costs={"seattle": 30_000_000, "houston": 19_640_000},
+    )
+    assert stayed == []
+    assert chain.status == "bankrupt"
+    chain.ebitda_trail = [400_000] * 8
+    late = board_actions(
+        chain,
+        memory,
+        person,
+        seed=1,
+        week=53,
+        personalities=snap.ai.personalities,
+        factors=snap.factors,
+        opening_costs={"houston": 19_640_000, "seattle": 30_000_000, "las_vegas": 24_000_000, "naperville": 26_180_000, "evansville": 15_000_000},
+    )
     assert any(action.kind == "reenter" for action in late)
+    old_id = chain.stores[0].id
     apply_actions(snap, late)
     assert chain.status == "active"
-    assert chain.debt == 0
-    assert chain.cash == 0
-    assert chain.stores[0].status == "open"
+    assert chain.stores[0].id == old_id
+    assert chain.stores[0].status == "closed"
+    assert any(store.status == "building" for store in chain.stores)
+    assert chain.build_loans
+    assert chain.revolver_debt == 0
+    from open_late.ai.constants import ENTRANT_CASH
+
+    assert chain.cash == ENTRANT_CASH - int(late[0].args["equity"])
     del provider
+
+
+def test_entrant_constants():
+    from open_late.ai.constants import ENTRANT_CASH, ENTRANT_CREDIT_LINE
+
+    assert ENTRANT_CASH == 15_000_000
+    assert ENTRANT_CREDIT_LINE == 10_000_000
+
+
+def test_no_reopen_action():
+    from open_late.ai.legal import ceo_menu
+
+    people, _digest = load_personalities()
+    person = people["premium_v1"]
+    chain = RivalChain(
+        chain_id="bluestar",
+        personality_id=person.id,
+        price_index=109,
+        cash=5_000_000,
+        stores=[
+            RivalStore(id="store:bluestar:seattle:1", city="seattle", opened_on=1, status="closed", price_index=109)
+        ],
+    )
+    menu = ceo_menu(chain, week=6, opening_cost=30_000_000, wars={})
+    assert all(action.kind != "reopen_store" for action in menu)
 
 
 def test_discount_and_premium_do_not_move_alike():

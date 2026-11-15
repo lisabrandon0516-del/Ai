@@ -131,8 +131,6 @@ def _effects(
         else:
             cash -= cost
         store_factor = 1
-    elif kind == "reopen_store":
-        store_factor = 1
     elif kind == "close_store":
         store_factor = -1
     elif kind == "remodel":
