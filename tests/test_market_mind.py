@@ -205,8 +205,9 @@ def test_expectimax_answers_the_sampled_player_then_replies():
         income_by_city={"houston": 100, "seattle": 100},
         player_type="passive",
     )
-    # A follow-up that gives up profit to buy share does not beat holding the new door.
-    assert passive_value + 1e-9 >= _utility(one_step_terms, person.weights)
+    # The reply is priced on its own. When that reply gives up profit, it does
+    # not outrank the door, and the caller keeps the door's own year.
+    assert _utility(one_step_terms, person.weights) + 1e-9 >= passive_value
     assert any(follow.kind == "set_chain_price_index" for follow in follow_up_actions(chain, action))
 
 

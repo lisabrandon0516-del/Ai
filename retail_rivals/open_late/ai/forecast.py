@@ -22,6 +22,15 @@ from open_late.ai.market import (
 from open_late.ai.models import ChainPnL, Projection, RivalChain, RivalStore
 
 
+def _discounted_weeks(weekly: int, *, start: int, weeks: int, annual: float = 0.08) -> int:
+    """Present value of a weekly profit. The first dollar arrives `start` weeks from now."""
+    if weeks <= 0 or weekly == 0:
+        return 0
+    rate = (1.0 + annual) ** (1.0 / 52.0) - 1.0
+    annuity = (1.0 - (1.0 + rate) ** (-weeks)) / rate
+    return int(round(weekly * annuity * (1.0 + rate) ** (-max(0, start))))
+
+
 def _elasticity_units(price_index: int) -> float:
     ratio = max(1, price_index) / 100.0
     return ratio ** (-2.62)
@@ -449,12 +458,99 @@ def _project_logit(
     p90 = max(high_net * horizon, contribution)
     cash_end = cash + contribution
     p_neg = 1.0 if cash_end < 0 or cash + p10 < 0 else 0.0
+    door_tail = 0
+    if kind == "open_store":
+        # The quarter already in `contribution` is not the life of a building.
+        # Count 52 weeks after the permit, discounted at 8% a year. The cash
+        # test stays on the quarter, so a door cannot pretend to fill the drawer.
+        # A door in a new city does not change the other cities, so the hold
+        # book is the sales we already have, minus the new door.
+        delay = int(args.get("delay_weeks", 4))
+        ramp = max(0.0, horizon - delay) / max(1, horizon)
+        existing_ids = {store.id for store in chain.stores}
+        same_city = any(store.city == city and store.status in {"open", "building"} for store in chain.stores)
+        if same_city:
+            hold_factors = _door_factors(base_rows, factors)
+            hold_map = _apply_traffic(
+                chain_sales(base_rows, chain.chain_id, segments, income_by_city, 0),
+                hold_factors[3],
+            )
+            hold_map = {
+                store_id: int(round(units * (1.0 + shock_bps / 10_000.0)))
+                for store_id, units in hold_map.items()
+            }
+            hold_bundle = dict(
+                rent_by_store=hold_factors[0],
+                labor_by_store=hold_factors[1],
+                opex_extra_by_store=hold_factors[2],
+                rent_mult_by_store=hold_factors[4],
+                price_by_store=hold_factors[5],
+            )
+        else:
+            hold_map = {store_id: units for store_id, units in sales_map.items() if store_id in existing_ids}
+            hold_bundle = dict(
+                rent_by_store=rents,
+                labor_by_store=labors,
+                opex_extra_by_store=taxes,
+                rent_mult_by_store=rent_mults,
+                price_by_store=prices,
+            )
+        _hold_sales, hold_operating = _bundle(
+            hold_map,
+            gross_margin_bps=gross_margin_bps,
+            opex_bps=opex_bps,
+            promo=0,
+            war=0,
+            cut=chain.cost_cut_pct,
+            debt=0,
+            shelf_index=shelf_index,
+            **hold_bundle,
+        )
+        hold_after = hold_operating - weekly_debt_service(chain)
+        # The logged sales blend the permit across the quarter. Undo that blend
+        # for the new door only, so the year after opening is full sales.
+        scaled = dict(sales_map)
+        if ramp > 0:
+            for store_id in list(scaled):
+                if store_id not in existing_ids:
+                    scaled[store_id] = int(round(scaled[store_id] / ramp))
+        _full_sales, full_operating = _bundle(
+            scaled,
+            gross_margin_bps=gross_margin_bps,
+            opex_bps=opex_bps,
+            promo=promo,
+            war=war,
+            cut=cut,
+            debt=0,
+            rent_by_store=rents,
+            labor_by_store=labors,
+            opex_extra_by_store=taxes,
+            rent_mult_by_store=rent_mults,
+            price_by_store=prices,
+            shelf_index=shelf_index,
+        )
+        post_ramp = full_operating - service - hold_after
+        new_service = max(0, service - weekly_debt_service(chain))
+        # The quarter is the permit blend the chain actually lives through.
+        # Weeks after that are full sales. A losing share stays a loss for the
+        # whole year; the blend is not allowed to hide it, and the year is not
+        # allowed to launder a quarter that does not cover the lease.
+        near = net - hold_after
+        if post_ramp <= 0:
+            pv = _discounted_weeks(post_ramp, start=delay, weeks=52) - new_service * delay
+            door_tail = pv - near * horizon
+            contribution = hold_after * horizon + pv
+        else:
+            tail_weeks = max(0, delay + 52 - horizon)
+            door_tail = _discounted_weeks(post_ramp, start=horizon, weeks=tail_weeks)
+            contribution = net * horizon + door_tail
+        full_units = scaled
     share_change_bps = int(round((new_share - old_share) * 10_000))
     if kind == "open_store":
-        before = chain_sales(market, chain.chain_id, segments, income_by_city, 0)
-        for store_id, units in sales_map.items():
-            if store_id in before:
+        for store_id, units in full_units.items():
+            if store_id in existing_ids:
                 continue
+            door_rent = int(rents.get(store_id, 0))
             door_net, _cogs, _opex = weekly_net(
                 units,
                 gross_margin_bps,
@@ -463,7 +559,7 @@ def _project_logit(
                 war_intensity=war,
                 cost_cut_pct=cut,
                 debt=0,
-                rent=0,
+                rent=door_rent or None,
                 labor_mult=float(labors.get(store_id, 1.0)),
                 rent_mult=float(rent_mults.get(store_id, 1.0)),
                 price_index=int(prices.get(store_id, _price)),
@@ -508,6 +604,7 @@ def _project_logit(
         p_cash_negative=p_neg,
         p10_contribution=p10,
         p90_contribution=p90,
+        door_tail=door_tail,
     )
 
 

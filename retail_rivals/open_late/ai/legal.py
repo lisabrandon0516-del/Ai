@@ -44,6 +44,35 @@ def funds(chain: RivalChain) -> int:
     return chain.cash + room
 
 
+def board_blocks(chain: RivalChain, action: Action) -> bool:
+    """A big call the drawer cannot cover. The chief executive should not be handed a hold instead.
+
+    Operating cost is opex, rent and interest. An opening already cleared the
+    debt cap with the new door's profit included, so that cap is not applied again.
+    """
+    from open_late.ai.constants import BIG_CALLS
+
+    if action.kind not in BIG_CALLS:
+        return False
+    if action.kind == "open_store":
+        equity = int(action.args.get("equity", action.args.get("cost", 0)))
+        if equity > chain.mandate.capex_budget:
+            return True
+    weekly = chain.last_pnl.opex
+    cash_after = chain.cash
+    if action.kind == "open_store":
+        cash_after -= int(action.args.get("equity", action.args.get("cost", 0)))
+    elif action.kind == "raise_capital":
+        cash_after += int(action.args.get("amount", 0))
+    if weekly > 0 and cash_after < MIN_CASH_WEEKS * weekly:
+        return True
+    if action.kind == "open_store" or len(chain.ebitda_trail) < 13:
+        return False
+    earned = trailing_ebitda(chain)
+    cap = chain.mandate.max_debt_ratio_x100 / 100.0
+    return bool(earned > 0 and chain.refresh_debt() > cap * earned)
+
+
 def last_store_cannot_earn(chain: RivalChain, next_13w_contribution: int) -> bool:
     """The only door may close when the last eight weeks and the next quarter both lose money."""
     trail = chain.ebitda_trail[-8:]

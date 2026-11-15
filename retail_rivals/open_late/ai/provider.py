@@ -411,28 +411,9 @@ def _board_vetoes(chain: RivalChain, action: Action) -> bool:
     Operating cost is opex, rent and interest. Cost of goods is not cash that has to sit in the drawer.
     A chain with under 13 weeks of history is judged on forecast earnings, which the menu already used.
     """
-    from open_late.ai.books import trailing_ebitda
-    from open_late.ai.constants import BIG_CALLS, MIN_CASH_WEEKS
+    from open_late.ai.legal import board_blocks
 
-    if action.kind not in BIG_CALLS:
-        return False
-    if action.kind == "open_store":
-        equity = int(action.args.get("equity", action.args.get("cost", 0)))
-        if equity > chain.mandate.capex_budget:
-            return True
-    weekly = chain.last_pnl.opex
-    cash_after = chain.cash
-    if action.kind == "open_store":
-        cash_after -= int(action.args.get("equity", action.args.get("cost", 0)))
-    elif action.kind == "raise_capital":
-        cash_after += int(action.args.get("amount", 0))
-    if weekly > 0 and cash_after < MIN_CASH_WEEKS * weekly:
-        return True
-    if len(chain.ebitda_trail) < 13:
-        return False
-    earned = trailing_ebitda(chain)
-    cap = chain.mandate.max_debt_ratio_x100 / 100.0
-    return bool(earned > 0 and chain.refresh_debt() > cap * earned)
+    return board_blocks(chain, action)
 
 
 def _own_chain(chain: RivalChain) -> dict:

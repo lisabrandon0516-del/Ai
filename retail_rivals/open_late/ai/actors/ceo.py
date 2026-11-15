@@ -23,7 +23,7 @@ from open_late.ai.constants import (
     SEGMENTS,
 )
 from open_late.ai.forecast import _effects, project_action
-from open_late.ai.legal import ceo_menu, clamp_price
+from open_late.ai.legal import board_blocks, ceo_menu, clamp_price
 from open_late.ai.market import apply_chain_action, apply_player_reply, chain_sales, opened_store_id
 from open_late.ai.memory import belief_means, recent_kinds, sample_player_type
 from open_late.ai.models import Action, ActorMemory, ActorRef, BuildLoan, Personality, RivalChain, RivalStore
@@ -143,6 +143,27 @@ def _cash_risk(action: Action, chain: RivalChain, p_negative: float) -> float:
             return 8.0
         return -2.0
     return -p_negative
+
+
+def _variety_term(action: Action, memory: ActorMemory, week: int) -> float:
+    """A hold has to beat the other moves. It is still a legal choice.
+
+    The cost grows with holds in the last month and the last quarter, so
+    standing still is not what happens when nothing else scored high. A hold
+    still wins when every real move's expected value is negative. Any other
+    kind gets more expensive each time it is repeated in the quarter, so one
+    move cannot fill the year.
+    """
+    recent13 = recent_kinds(memory, 13, week)
+    if action.kind == "do_nothing":
+        recent4 = recent_kinds(memory, 4, week)
+        holds4 = sum(1 for row in recent4 if row.get("kind") == "do_nothing")
+        holds13 = sum(1 for row in recent13 if row.get("kind") == "do_nothing")
+        # A close call has to beat a hold. Past this cap the next move is giving
+        # up real profit, and a hold is supposed to win that case.
+        return max(-1.0, -0.35 - 0.40 * holds4 - 0.15 * holds13)
+    repeats = sum(1 for row in recent13 if row.get("kind") == action.kind)
+    return max(-1.6, -0.40 * repeats)
 
 
 def _regret(action: Action, memory: ActorMemory, week: int) -> float:
@@ -301,10 +322,15 @@ def _terms(
         factors=factors,
         shelf_index=personality.price_index,
     )
-    last = ""
-    if memory.moves:
-        last = str(memory.moves[-1].get("kind", ""))
     contribution = projected.contribution
+    if action.kind == "open_store":
+        # The first quarter counts for every chain. The rest of the building's
+        # year is what a growth mandate is for, so an expander values later
+        # doors and a premium chain does not chase them.
+        tilt = chain.mandate.growth_vs_profit / 100.0
+        tail = projected.door_tail
+        if tail > 0:
+            contribution = projected.contribution - tail + int(round(tail * tilt))
     if action.kind == "remodel":
         # The forecast does not grow sales for a remodel, so the check is a real cost.
         contribution -= int(action.args.get("cost", 0))
@@ -345,7 +371,7 @@ def _terms(
             else 0.0
         ),
         "grudge": (memory.grudge / 100.0) * _hostility(action),
-        "variety": -1.0 if last == action.kind else 0.0,
+        "variety": _variety_term(action, memory, week),
         "regret": _regret(action, memory, week),
     }
 
@@ -646,7 +672,13 @@ def choose_ceo_action(
                     incremental = min(incremental, 0)
                 else:
                     incremental = int(round(pnl.net * max(0.0, fresh - stolen) / fresh))
-        earned = max(0, held_net + pnl.net) * 52 if young else trailing_ebitda(chain)
+        # Debt is capped at 3x the yearly operating profit of the chain that
+        # will exist after this door, not the trail of the chain without it.
+        if young:
+            realized = max(0, held_net) * 52
+        else:
+            realized = trailing_ebitda(chain)
+        earned = max(0, realized) + max(0, incremental) * 52
         figures[city] = (held_opex + pnl.opex, incremental, earned)
     menu = ceo_menu(
         chain,
@@ -671,6 +703,27 @@ def choose_ceo_action(
         if action.kind == "defend":
             city = str(action.args.get("city", ""))
             action.args["match_index"] = int(player_price.get(city, chain.price_index))
+            current = next(
+                (
+                    store.price_index
+                    for store in chain.stores
+                    if store.city == city and store.status == "open"
+                ),
+                chain.price_index,
+            )
+            if int(action.args["match_index"]) == current:
+                continue
+        if action.kind == "promo":
+            city = str(action.args.get("city", ""))
+            depth = int(action.args.get("depth", 20))
+            targeted = [store for store in chain.stores if store.status == "open" and store.city == city]
+            already = [
+                store
+                for store in targeted
+                if store.promo_depth >= depth and int(store.promo_until_week) >= week
+            ]
+            if targeted and len(already) == len(targeted):
+                continue
         if action.kind == "copy_best_seller":
             city = str(action.args.get("city", ""))
             income = int((income_by_city or {}).get(city, 100))
@@ -683,6 +736,8 @@ def choose_ceo_action(
             ]
             if focused:
                 continue
+        if board_blocks(chain, action):
+            continue
         kept.append(action)
     # A city that already has a door is still a legal site. The logit and the
     # cannibal gate decide whether the second door earns its loan.
@@ -708,7 +763,7 @@ def choose_ceo_action(
     iters = SEARCH_ITERS.get(difficulty, SEARCH_ITERS["standard"])
     big = [row for row in scored if row[0].kind in BIG_CALLS]
     big.sort(key=lambda row: (-round(row[1], 6), tie_key(row[0])))
-    for action, _myopic, _myopic_terms in big[:SEARCH_SHORTLIST]:
+    for action, myopic, _myopic_terms in big[:SEARCH_SHORTLIST]:
         mean_u, terms = _expectimax(
             action,
             chain,
@@ -724,6 +779,9 @@ def choose_ceo_action(
             income_by_city=income_by_city,
             factors=factors,
         )
+        if action.kind == "open_store":
+            # The reply prices the next week. The door's own score carries the rest of its year.
+            mean_u = max(mean_u, myopic)
         for index, row in enumerate(scored):
             if row[0] is action:
                 scored[index] = (action, mean_u, terms)

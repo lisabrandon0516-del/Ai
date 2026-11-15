@@ -50,7 +50,13 @@ def apply_debt_service(chain: RivalChain) -> int:
 
 
 def trailing_ebitda(chain: RivalChain) -> int:
+    """Yearly operating profit from the last quarter of real books.
+
+    The opening weeks stay in the history, but they are not the run-rate a
+    healthy chain is borrowing against once a quarter has been earned.
+    """
     trail = [int(value) for value in chain.ebitda_trail if value is not None]
-    if trail:
-        return int(sum(trail) * 52 / len(trail))
-    return max(0, chain.last_pnl.net) * 52
+    if not trail:
+        return max(0, chain.last_pnl.net) * 52
+    window = trail[-13:]
+    return int(sum(window) * 52 / len(window))

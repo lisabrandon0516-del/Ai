@@ -300,3 +300,5 @@ class Projection(BaseModel):
     p_cash_negative: float
     p10_contribution: int
     p90_contribution: int
+    # Value of a new door past the first quarter, before the growth mandate scales it.
+    door_tail: int = 0
