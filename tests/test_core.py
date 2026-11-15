@@ -495,6 +495,58 @@ def test_baselines_cover_the_four_policies():
     assert rolled.reason
 
 
+def test_belief_decays_after_the_sample():
+    from open_late.ai.memory import decay_belief
+
+    memory = ActorMemory(actor_id="ceo:valuemax")
+    memory.belief = {"price_fighter": 9.0, "passive": 1.0, "premium": 1.0, "expander": 1.0}
+    decay_belief(memory, week=1)
+    assert memory.belief["price_fighter"] == 9.0
+    decay_belief(memory, week=27)
+    assert memory.belief["price_fighter"] == pytest.approx(5.0)
+
+
+def test_price_cutter_reaches_86_and_stops():
+    from open_late.ai.constants import week_of
+    from open_late.standin.sim import _player_step
+
+    snap, provider = make_snapshot(2, difficulty="calm")
+    for _ in range(28):
+        _player_step(snap, provider, "price_cutter")
+        snap.day += 7
+        snap.week = week_of(snap.day)
+    assert snap.public["player_price_index"]["evansville"] == 86
+    assert all(row.get("city") != "houston" for row in snap.public["player_stores"])
+
+
+def test_board_vetoes_a_big_call_that_breaks_the_floor():
+    from open_late.ai.models import ChainPnL
+    from open_late.ai.provider import _board_vetoes
+
+    chain = RivalChain(
+        chain_id="valuemax",
+        personality_id="price_leader_v1",
+        price_index=92,
+        cash=100_000,
+        stores=[],
+    )
+    chain.last_pnl = ChainPnL(week=1, sales=200_000, cogs=80_000, opex=80_000, net=40_000)
+    action = Action(
+        actor=ActorRef(kind="ceo", id="ceo:valuemax"),
+        kind="raise_capital",
+        args={"amount": 2_000_000},
+        reason="ValueMax drew the shop line.",
+    )
+    assert _board_vetoes(chain, action) is False
+    opening = Action(
+        actor=ActorRef(kind="ceo", id="ceo:valuemax"),
+        kind="open_store",
+        args={"city": "houston", "cost": 19_640_000, "equity": 6_000_000, "loan": 13_640_000},
+        reason="ValueMax filed to open a store in Houston.",
+    )
+    assert _board_vetoes(chain, opening) is True
+
+
 def test_money_stays_integral_after_a_month():
     result = simulate(15, weeks=4, difficulty="standard", player_style="price_cutter")
     assert result.final_cash

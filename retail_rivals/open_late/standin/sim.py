@@ -176,7 +176,7 @@ def _apply_one(snap: Snapshot, action: Action) -> ActionResult:
     if snap.ai is None:
         return ActionResult(action=action, accepted=False, note="ai off")
     chain = _chain_for(snap, action)
-    if kind == "do_nothing" or kind == "hold":
+    if kind == "do_nothing" or kind == "hold" or kind == "approve_or_veto":
         return ActionResult(action=action, accepted=True, note="ok")
     if kind == "set_chain_price_index" and chain is not None:
         delta = int(action.args.get("delta", 0))
@@ -639,20 +639,37 @@ def simulate(
 
 
 def _player_step(snap: Snapshot, provider: RetailAI, style: str) -> None:
-    if style == "price_cutter" and snap.week % 2 == 0:
-        for city in CITIES:
-            current = int(snap.public["player_price_index"][city])
-            snap.public["player_price_index"][city] = max(86, current - 4)
-            provider.on_event(
-                snap,
-                GameEvent(
-                    name="PlayerBasketIndex",
-                    day=snap.day,
-                    week=snap.week,
-                    city=city,
-                    payload={"index": snap.public["player_price_index"][city]},
-                ),
-            )
+    if style == "price_cutter" and snap.week > 0 and snap.week % 4 == 0:
+        city = "evansville"
+        current = int(snap.public["player_price_index"].get(city, 100))
+        snap.public["player_price_index"][city] = max(86, current - 6)
+        provider.on_event(
+            snap,
+            GameEvent(
+                name="PlayerBasketIndex",
+                day=snap.day,
+                week=snap.week,
+                city=city,
+                payload={"index": snap.public["player_price_index"][city]},
+            ),
+        )
+        if snap.week == 26:
+            cost = city_opening_cost("houston", snap.factors)
+            if int(snap.hidden.get("player_cash", 0)) >= cost:
+                if not any(row.get("city") == "houston" for row in snap.public["player_stores"]):
+                    snap.public["player_stores"].append(
+                        {
+                            "id": "houston",
+                            "city": "houston",
+                            "opened_on": snap.day,
+                            "distance_band": 1,
+                            "trust": 60,
+                            "focus": "grocery",
+                            "promo": 0,
+                            "stockouts": 0,
+                        }
+                    )
+                    snap.public["player_price_index"].setdefault("houston", 100)
     elif style == "expander" and snap.week == 3:
         city = "houston"
         if not any(row.get("city") == city for row in snap.public["player_stores"]):

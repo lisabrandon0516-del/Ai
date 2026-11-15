@@ -27,7 +27,7 @@ from open_late.ai.constants import (
     factor_key,
 )
 from open_late.ai.legal import clamp_price
-from open_late.ai.memory import add_grudge, append_move, decay_grudge, ensure_memory, update_belief
+from open_late.ai.memory import add_grudge, append_move, decay_belief, decay_grudge, ensure_memory, update_belief
 from open_late.ai.models import (
     AIState,
     ActorRef,
@@ -151,7 +151,18 @@ class RetailAI:
                 raise_amount=snap.raise_amount,
                 context=week_ctx,
             )
+            if _board_vetoes(chain, chosen):
+                veto = Action(
+                    actor=ActorRef(kind="board", id=f"board:{chain_id}"),
+                    kind="approve_or_veto",
+                    args={"verdict": "veto", "kind": chosen.kind, "city": str(chosen.args.get("city", ""))},
+                )
+                veto.reason = f"The board vetoed the {chosen.kind.replace('_', ' ')}."
+                actions.append(veto)
+                chosen = Action(actor=chosen.actor, kind="do_nothing", args={})
+                chosen.reason = f"The {chain_id} chief executive held after the board's veto."
             actions.append(chosen)
+            decay_belief(memory, snap.week)
             append_move(
                 memory,
                 {
@@ -392,6 +403,28 @@ def _acting(snap: Snapshot) -> list[str]:
             continue
         chosen.append(chain_id)
     return chosen
+
+
+def _board_vetoes(chain: RivalChain, action: Action) -> bool:
+    """A big call that leaves less than eight weeks of operating cost, or breaks the debt cap, does not happen."""
+    from open_late.ai.books import trailing_ebitda
+    from open_late.ai.constants import BIG_CALLS
+
+    if action.kind not in BIG_CALLS:
+        return False
+    weekly = chain.last_pnl.cogs + chain.last_pnl.opex
+    if weekly <= 0:
+        return False
+    cash_after = chain.cash
+    if action.kind == "open_store":
+        cash_after -= int(action.args.get("equity", action.args.get("cost", 0)))
+    elif action.kind == "raise_capital":
+        cash_after += int(action.args.get("amount", 0))
+    if cash_after < 8 * weekly:
+        return True
+    earned = trailing_ebitda(chain)
+    cap = chain.mandate.max_debt_ratio_x100 / 100.0
+    return bool(earned > 0 and chain.refresh_debt() > cap * earned)
 
 
 def _own_chain(chain: RivalChain) -> dict:
