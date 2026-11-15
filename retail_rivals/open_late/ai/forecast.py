@@ -9,7 +9,8 @@ Money is rounded only at the return.
 
 from __future__ import annotations
 
-from open_late.ai.constants import BASE_WEEKLY_SALES, BUILD_WEEKLY_RATE
+from open_late.ai.books import weekly_debt_service
+from open_late.ai.constants import BASE_WEEKLY_SALES, BUILD_TERM_WEEKS, BUILD_WEEKLY_RATE
 from open_late.ai.costs import labor_multiplier, tax_drag_bps, traffic_mult, weekly_rent
 from open_late.ai.market import (
     apply_chain_action,
@@ -76,13 +77,16 @@ def weekly_net(
     gm = gm_bps / 10_000.0 - (promo_depth / 100.0) * 0.45 - war_intensity * 0.0015
     gm = max(-1.0, min(0.85, gm))
     ratio = (opex_bps / 10_000.0) * (1.0 - cost_cut_pct / 100.0)
+    # The market lease replaces the occupancy slice. It is not charged twice.
     if rent:
-        rent_mult = 1.0
-    opex_rate = ratio * (0.65 * labor_mult + 0.35 * rent_mult)
+        opex_rate = ratio * 0.65 * labor_mult
+        door_rent = rent
+    else:
+        opex_rate = ratio * (0.65 * labor_mult + 0.35 * rent_mult)
+        door_rent = 0
     cogs = int(round(sales * (1.0 - gm)))
     opex = int(round(sales * opex_rate))
     interest = int(round(debt * BUILD_WEEKLY_RATE))
-    door_rent = 0 if rent is None else rent
     net = sales - cogs - opex - door_rent - interest
     return net, cogs, opex + door_rent + interest
 
@@ -119,7 +123,13 @@ def _effects(
     elif kind == "cut_costs":
         cut = int(args.get("pct", 1))
     elif kind == "open_store":
-        cash -= opening_cost - int(args.get("draw", 0))
+        cost = int(args.get("cost", opening_cost))
+        if "equity" in args:
+            cash -= int(args["equity"])
+        elif "loan" in args:
+            cash -= cost - int(args["loan"])
+        else:
+            cash -= cost
         store_factor = 1
     elif kind == "reopen_store":
         store_factor = 1
@@ -424,9 +434,18 @@ def _project_logit(
         price_by_store=prices,
         shelf_index=shelf_index,
     )
+    bundle["debt"] = 0
     sales, net = _bundle(sales_map, **bundle)
     _low_sales, low_net = _bundle(low_map, **bundle)
     _high_sales, high_net = _bundle(high_map, **bundle)
+    extra_loan = int(args.get("loan", 0)) if kind == "open_store" else 0
+    extra_revolver = int(args.get("amount", 0)) if kind == "raise_capital" else 0
+    if kind == "pay_down_debt":
+        extra_revolver = -min(chain.revolver_debt, int(args.get("amount", 0)))
+    service = weekly_debt_service(chain, extra_loan=extra_loan, extra_revolver=extra_revolver)
+    net -= service
+    low_net -= service
+    high_net -= service
     contribution = net * horizon
     p10 = min(low_net * horizon, contribution)
     p90 = max(high_net * horizon, contribution)
@@ -452,8 +471,9 @@ def _project_logit(
                 price_index=int(prices.get(store_id, _price)),
                 shelf_index=shelf_index,
             )
-            coupon = int(round(int(args.get("draw", 0)) * BUILD_WEEKLY_RATE))
-            if door_net <= coupon:
+            loan = int(args.get("loan", 0))
+            payment = int(round(loan * BUILD_WEEKLY_RATE)) + (max(1, loan // BUILD_TERM_WEEKS) if loan else 0)
+            if door_net <= payment:
                 share_change_bps = 0
                 break
     if share_change_bps > 0:

@@ -7,10 +7,16 @@ does not get to open one.
 
 from __future__ import annotations
 
+from open_late.ai.books import trailing_ebitda
 from open_late.ai.constants import (
     BIG_CALL_COOLDOWN_WEEKS,
+    BUILD_LTV,
+    BUILD_TERM_WEEKS,
+    BUILD_WEEKLY_RATE,
     CITIES,
     DEPARTMENTS,
+    MIN_CASH_WEEKS,
+    MIN_LIQUIDITY_WEEKS,
     NORTHLINE_BLOCKS_MIN,
     NORTHLINE_PRICE_MAX,
     NORTHLINE_PRICE_MIN,
@@ -31,9 +37,49 @@ def _ready(chain: RivalChain, key: str, week: int) -> bool:
 
 
 def funds(chain: RivalChain) -> int:
-    """Cash plus undrawn credit. Doors and remodels spend cash, not this total."""
-    room = max(0, chain.credit_line - chain.debt)
+    """Cash plus the undrawn revolver. A building is not paid from this line."""
+    room = max(0, chain.credit_line - chain.revolver_debt)
     return chain.cash + room
+
+
+def last_store_cannot_earn(chain: RivalChain, next_13w_contribution: int) -> bool:
+    """The only door may close when the last eight weeks and the next quarter both lose money."""
+    trail = chain.ebitda_trail[-8:]
+    if len(trail) < 8:
+        return False
+    return sum(trail) < 0 and next_13w_contribution < 0
+
+
+def build_loan_terms(
+    chain: RivalChain,
+    cost: int,
+    weekly_cost: int,
+    incremental: int,
+    ebitda_52: int | None = None,
+) -> tuple[bool, int]:
+    """Rules A, B, and C. Returns (allowed, loan).
+
+    The loan is at most 70% of cost. The chain pays the rest in cash.
+    """
+    if cost <= 0 or weekly_cost < 0:
+        return False, 0
+    loan = int(cost * BUILD_LTV)
+    equity = cost - loan
+    cash_after = chain.cash - equity
+    if cash_after < MIN_CASH_WEEKS * weekly_cost:
+        return False, 0
+    undrawn = max(0, chain.credit_line - chain.revolver_debt)
+    if cash_after + undrawn < MIN_LIQUIDITY_WEEKS * weekly_cost:
+        return False, 0
+    ratio = chain.mandate.max_debt_ratio_x100 / 100.0
+    base = trailing_ebitda(chain) if ebitda_52 is None else ebitda_52
+    owed = chain.revolver_debt + loan + sum(item.principal for item in chain.build_loans)
+    if base <= 0 or owed > ratio * base:
+        return False, 0
+    payment = int(round(loan * BUILD_WEEKLY_RATE)) + max(1, loan // BUILD_TERM_WEEKS)
+    if incremental <= payment:
+        return False, 0
+    return True, loan
 
 
 def big_call_ready(chain: RivalChain, week: int) -> bool:
@@ -50,6 +96,9 @@ def ceo_menu(
     raise_amount: int = 2_000_000,
     paydown: int = 1_000_000,
     opening_costs: dict[str, int] | None = None,
+    door_figures: dict[str, tuple[int, int]] | None = None,
+    ebitda_52: int | None = None,
+    last_store_failing: bool = False,
 ) -> list[Action]:
     """Fixed menu. Infeasible rows are omitted so selection stays inside the rules."""
     actor = ActorRef(kind="ceo", id=f"ceo:{chain.chain_id}")
@@ -62,17 +111,16 @@ def ceo_menu(
         if PRICE_INDEX_MIN <= nxt <= PRICE_INDEX_MAX:
             rows.append(Action(actor=actor, kind="set_chain_price_index", args={"delta": delta}))
     open_ok = _ready(chain, "opening", week) and big_call_ready(chain, week)
-    # Cash pays what it can. A build draw covers the rest, and only when the
-    # line has room. The forecast drops the door unless its profit covers the coupon.
+    # A door is on the menu only when equity, liquidity, leverage, and coverage all hold.
     open_now = [store for store in chain.stores if store.status == "open"]
-    if open_ok and chain.cash >= 0:
-        room = max(0, chain.credit_line - chain.debt)
+    if open_ok and chain.cash >= 0 and door_figures:
         for city in CITIES:
             cost = int((opening_costs or {}).get(city, opening_cost))
-            if cost <= 0:
+            if cost <= 0 or city not in door_figures:
                 continue
-            draw = max(0, cost - chain.cash)
-            if draw > room:
+            weekly_cost, incremental = door_figures[city]
+            allowed, loan = build_loan_terms(chain, cost, weekly_cost, incremental, ebitda_52)
+            if not allowed:
                 continue
             here = [
                 store
@@ -85,7 +133,7 @@ def ceo_menu(
                 Action(
                     actor=actor,
                     kind="open_store",
-                    args={"city": city, "site_band": 2, "cost": cost, "draw": draw},
+                    args={"city": city, "site_band": 2, "cost": cost, "loan": loan, "equity": cost - loan},
                 )
             )
     closed = [store for store in chain.stores if store.status == "closed"]
@@ -101,7 +149,7 @@ def ceo_menu(
     for store in chain.stores:
         if store.status != "open":
             continue
-        if big_call_ready(chain, week) and len(open_now) > 1:
+        if big_call_ready(chain, week) and (len(open_now) > 1 or (len(open_now) == 1 and last_store_failing)):
             rows.append(
                 Action(
                     actor=actor,
@@ -142,9 +190,9 @@ def ceo_menu(
         if pct <= chain.cost_cut_pct and week <= int(chain.cost_cut_until_week):
             continue
         rows.append(Action(actor=actor, kind="cut_costs", args={"pct": pct}))
-    if big_call_ready(chain, week) and chain.debt + raise_amount <= chain.credit_line:
+    if big_call_ready(chain, week) and chain.revolver_debt + raise_amount <= chain.credit_line:
         rows.append(Action(actor=actor, kind="raise_capital", args={"amount": raise_amount}))
-    if chain.debt > 0 and chain.cash >= paydown:
+    if chain.refresh_debt() > 0 and chain.cash >= paydown:
         pay = min(chain.debt, paydown)
         rows.append(Action(actor=actor, kind="pay_down_debt", args={"amount": pay}))
     return rows

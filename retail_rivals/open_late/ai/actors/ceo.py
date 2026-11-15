@@ -25,7 +25,7 @@ from open_late.ai.forecast import _effects, project_action
 from open_late.ai.legal import ceo_menu, clamp_price
 from open_late.ai.market import apply_chain_action, apply_player_reply, opened_store_id
 from open_late.ai.memory import belief_means, recent_kinds, sample_player_type
-from open_late.ai.models import Action, ActorMemory, ActorRef, Personality, RivalChain, RivalStore
+from open_late.ai.models import Action, ActorMemory, ActorRef, BuildLoan, Personality, RivalChain, RivalStore
 from open_late.ai.reasons import ceo_reason
 from open_late.ai.rng import ai_rng
 from open_late.ai.select import argmax, softmax_pick, tie_key
@@ -136,7 +136,7 @@ def _opening_bill(action: Action, opening_cost: int) -> int:
 
 def _cash_risk(action: Action, chain: RivalChain, p_negative: float) -> float:
     """Once the drawer is empty, drawing the credit line is the move that keeps the chain alive."""
-    undrawn = chain.debt < chain.credit_line
+    undrawn = chain.revolver_debt < chain.credit_line
     if chain.cash < 0 and undrawn:
         if action.kind == "raise_capital":
             return 8.0
@@ -169,11 +169,26 @@ def advance_chain(chain: RivalChain, action: Action, opening_cost: int) -> Rival
     args = action.args
     city = str(args.get("city", ""))
     if kind == "raise_capital":
-        shadow.debt += int(args.get("amount", 0))
+        shadow.revolver_debt += int(args.get("amount", 0))
+        shadow.refresh_debt()
     elif kind == "open_store":
-        shadow.debt += int(args.get("draw", 0))
+        loan = int(args.get("loan", 0))
+        if loan > 0:
+            shadow.build_loans.append(BuildLoan(store_id="pending", original=loan, principal=loan))
+            shadow.refresh_debt()
     elif kind == "pay_down_debt":
-        shadow.debt = max(0, shadow.debt - int(args.get("amount", 0)))
+        pay = int(args.get("amount", 0))
+        take = min(shadow.revolver_debt, pay)
+        shadow.revolver_debt -= take
+        left = pay - take
+        for loan in shadow.build_loans:
+            if left <= 0:
+                break
+            cut = min(loan.principal, left)
+            loan.principal -= cut
+            left -= cut
+        shadow.build_loans = [loan for loan in shadow.build_loans if loan.principal > 0]
+        shadow.refresh_debt()
     elif kind == "set_chain_price_index":
         delta = int(args.get("delta", 0))
         shadow.price_index = clamp_price(shadow.price_index + delta)
@@ -285,6 +300,11 @@ def _terms(
     if action.kind == "remodel":
         # The forecast does not grow sales for a remodel, so the check is a real cost.
         contribution -= int(action.args.get("cost", 0))
+    if action.kind == "close_store":
+        still = [store for store in chain.stores if store.status == "open" and store.id != action.args.get("store_id")]
+        if not still:
+            # Closing the last door gives up whatever the chain has still earned.
+            contribution -= max(0, sum(chain.ebitda_trail[-52:]))
     return {
         "contribution_13w": contribution / 1_000_000.0,
         # /500 keeps one share-point near the weight scale the personalities
@@ -466,6 +486,28 @@ def _expectimax(
     return total / iters, base
 
 
+def _last_store_failing(chain, personality, factors, visit_mult: int) -> bool:
+    from open_late.ai.forecast import store_pnl
+    from open_late.ai.legal import last_store_cannot_earn
+
+    open_stores = [store for store in chain.stores if store.status == "open"]
+    if len(open_stores) != 1:
+        return False
+    store = open_stores[0]
+    pnl = store_pnl(
+        store,
+        gross_margin_bps=personality.gross_margin_bps,
+        opex_bps=personality.opex_bps,
+        visit_mult=visit_mult,
+        war_intensity=0,
+        cost_cut_pct=chain.cost_cut_pct,
+        debt_share=0,
+        factors=factors,
+        shelf_index=personality.price_index,
+    )
+    return last_store_cannot_earn(chain, pnl.net * 13)
+
+
 def choose_ceo_action(
     chain: RivalChain,
     personality: Personality,
@@ -493,6 +535,32 @@ def choose_ceo_action(
         market = context.market
         segments = context.segments
         income_by_city = context.income_by_city
+    from open_late.ai.books import trailing_ebitda
+    from open_late.ai.forecast import store_pnl
+
+    figures: dict[str, tuple[int, int]] = {}
+    for city, cost in (opening_costs or {}).items():
+        if int(cost) <= 0:
+            continue
+        probe = RivalStore(
+            id=f"probe:{city}",
+            city=city,
+            opened_on=0,
+            status="open",
+            price_index=chain.price_index,
+        )
+        pnl = store_pnl(
+            probe,
+            gross_margin_bps=personality.gross_margin_bps,
+            opex_bps=personality.opex_bps,
+            visit_mult=visit_mult,
+            war_intensity=0,
+            cost_cut_pct=chain.cost_cut_pct,
+            debt_share=0,
+            factors=factors,
+            shelf_index=personality.price_index,
+        )
+        figures[city] = (pnl.cogs + pnl.opex, pnl.net)
     menu = ceo_menu(
         chain,
         week,
@@ -501,6 +569,9 @@ def choose_ceo_action(
         remodel_cost=remodel_cost,
         raise_amount=raise_amount,
         opening_costs=opening_costs,
+        door_figures=figures,
+        ebitda_52=trailing_ebitda(chain),
+        last_store_failing=_last_store_failing(chain, personality, factors, visit_mult),
     )
     if not menu:
         actor_id = f"ceo:{chain.chain_id}"

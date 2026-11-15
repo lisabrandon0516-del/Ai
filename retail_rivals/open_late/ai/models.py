@@ -39,12 +39,12 @@ class Mandate(BaseModel):
     ``target_net_margin_bps`` is basis points (200 = 2%).
     ``growth_vs_profit`` is an integer 0–100 standing for the spec's 0–1,
     so a save stays exact.
-    ``max_debt_ratio_x100`` is the debt/EBITDA cap times 100 (250 = 2.5x).
+    ``max_debt_ratio_x100`` is the debt/EBITDA cap times 100 (300 = 3.0x).
     """
 
     target_net_margin_bps: int = 200
     capex_budget: int = 12_000_000
-    max_debt_ratio_x100: int = 250
+    max_debt_ratio_x100: int = 300
     growth_vs_profit: int = 40
 
 
@@ -70,21 +70,53 @@ class RivalStore(BaseModel):
     promo_until_week: int = 0
 
 
+class BuildLoan(BaseModel):
+    """A building's own loan. It is not the shop revolver."""
+
+    store_id: str
+    original: int
+    principal: int
+    rate_bps: int = 800
+    term_weeks: int = 1040
+
+
 class RivalChain(BaseModel):
     chain_id: str
     personality_id: str
     price_index: int
     cash: int
+    revolver_debt: int = 0
+    build_loans: list[BuildLoan] = Field(default_factory=list)
+    # Sum of the revolver and the build loans. Old saves stored one number here.
     debt: int = 0
     credit_line: int = 10_000_000
     stores: list[RivalStore] = Field(default_factory=list)
     last_pnl: ChainPnL = Field(default_factory=ChainPnL)
+    ebitda_trail: list[int] = Field(default_factory=list)
     status: str = "active"
     bankrupt_on: int | None = None
     cooldowns: dict[str, int] = Field(default_factory=dict)
     mandate: Mandate = Field(default_factory=Mandate)
     cost_cut_pct: int = 0
     cost_cut_until_week: int = 0
+
+    @model_validator(mode="before")
+    @classmethod
+    def _migrate_one_debt_number(cls, data):
+        if isinstance(data, dict) and "revolver_debt" not in data:
+            data = dict(data)
+            data["revolver_debt"] = int(data.get("debt") or 0)
+            data["build_loans"] = data.get("build_loans") or []
+        return data
+
+    @model_validator(mode="after")
+    def _sum_debt(self):
+        self.debt = self.revolver_debt + sum(loan.principal for loan in self.build_loans)
+        return self
+
+    def refresh_debt(self) -> int:
+        self.debt = self.revolver_debt + sum(loan.principal for loan in self.build_loans)
+        return self.debt
 
 
 class ActorMemory(BaseModel):

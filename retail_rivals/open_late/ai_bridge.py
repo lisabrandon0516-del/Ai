@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from open_late.corporate import MARKETS
 from open_late.economy import SALES_CAP, _cap_mult, _key, _starting_values
 from open_late.economy_e3 import LABOR_CAP, RENT_CAP
+from open_late.finance import INTEREST_RATE
 from open_late.store_costs import SUPERCENTER_BUILD_COST
 
 API_VERSION = 1
@@ -55,6 +56,11 @@ def market_table() -> dict[str, MarketRow]:
         )
         for key, market in MARKETS.items()
     }
+
+
+def shop_weekly_rate() -> float:
+    """The player's shop credit, charged every week on the revolver only."""
+    return INTEREST_RATE
 
 
 def opening_cost(city: str, factors: dict[str, int] | None = None) -> int:

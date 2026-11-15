@@ -174,19 +174,23 @@ def _apply_one(snap: Snapshot, action: Action) -> ActionResult:
             store.price_index = clamp_price(store.price_index + delta)
         return ActionResult(action=action, accepted=True, note="ok")
     if kind == "open_store" and chain is not None:
+        from open_late.ai.constants import BUILD_LTV
+        from open_late.ai.models import BuildLoan
+
         cost = int(action.args.get("cost", snap.opening_cost))
-        draw = int(action.args.get("draw", 0))
+        loan = int(action.args.get("loan", 0))
+        equity = int(action.args.get("equity", cost - loan))
         if (
             cost <= 0
-            or draw < 0
+            or loan < 0
+            or equity < 0
+            or loan > int(cost * BUILD_LTV)
             or chain.status == "bankrupt"
-            or chain.debt + draw > chain.credit_line
-            or chain.cash + draw < cost
+            or chain.cash < equity
         ):
             return ActionResult(action=action, accepted=False, note="rejected: cash")
         city = str(action.args["city"])
-        chain.debt += draw
-        chain.cash += draw - cost
+        chain.cash -= equity
         existing = [store for store in chain.stores if store.city == city]
         store = RivalStore(
             id=f"store:{chain.chain_id}:{city}:{len(existing) + 1}",
@@ -198,6 +202,11 @@ def _apply_one(snap: Snapshot, action: Action) -> ActionResult:
             focus_dept="grocery",
         )
         chain.stores.append(store)
+        if loan > 0:
+            chain.build_loans.append(
+                BuildLoan(store_id=store.id, original=loan, principal=loan)
+            )
+        chain.refresh_debt()
         stamp_cooldowns(chain, action, snap.week)
         snap.public["permits"].append(
             {"applicant": chain.chain_id, "city": city, "filed_day": snap.day}
@@ -213,7 +222,37 @@ def _apply_one(snap: Snapshot, action: Action) -> ActionResult:
             if other.status == "open" and other.id != store.id
         ]
         if not still_open:
-            return ActionResult(action=action, accepted=False, note="rejected: last store")
+            from open_late.ai.forecast import store_pnl
+            from open_late.ai.legal import last_store_cannot_earn
+
+            person = snap.ai.personalities.get(chain.personality_id)
+            nxt = 0
+            if person is not None:
+                mult = 1000
+                card = snap.ai.shopper_card
+                if card is not None:
+                    mult = card.visit_mult.get(store.id, 1000)
+                pnl = store_pnl(
+                    store,
+                    gross_margin_bps=person.gross_margin_bps,
+                    opex_bps=person.opex_bps,
+                    visit_mult=mult,
+                    war_intensity=0,
+                    cost_cut_pct=chain.cost_cut_pct,
+                    debt_share=0,
+                    factors=snap.factors,
+                    shelf_index=person.price_index,
+                )
+                nxt = pnl.net * 13
+            if not last_store_cannot_earn(chain, nxt):
+                return ActionResult(action=action, accepted=False, note="rejected: last store")
+            chain.status = "bankrupt"
+            chain.bankrupt_on = snap.day
+            for other in chain.stores:
+                if other.status != "closed":
+                    other.status = "closed"
+            stamp_cooldowns(chain, action, snap.week)
+            return ActionResult(action=action, accepted=True, note="bankrupt")
         store.status = "closed"
         stamp_cooldowns(chain, action, snap.week)
         return ActionResult(action=action, accepted=True, note="ok")
@@ -268,18 +307,30 @@ def _apply_one(snap: Snapshot, action: Action) -> ActionResult:
         return ActionResult(action=action, accepted=True, note="ok")
     if kind == "raise_capital" and chain is not None:
         amount = int(action.args.get("amount", 0))
-        if chain.debt + amount > chain.credit_line:
+        if chain.revolver_debt + amount > chain.credit_line:
             return ActionResult(action=action, accepted=False, note="rejected: credit")
         chain.cash += amount
-        chain.debt += amount
+        chain.revolver_debt += amount
+        chain.refresh_debt()
         stamp_cooldowns(chain, action, snap.week)
         return ActionResult(action=action, accepted=True, note="ok")
     if kind == "pay_down_debt" and chain is not None:
         amount = int(action.args.get("amount", 0))
+        chain.refresh_debt()
         if amount > chain.cash or amount > chain.debt:
             return ActionResult(action=action, accepted=False, note="rejected: cash")
         chain.cash -= amount
-        chain.debt -= amount
+        take = min(chain.revolver_debt, amount)
+        chain.revolver_debt -= take
+        left = amount - take
+        for loan in chain.build_loans:
+            if left <= 0:
+                break
+            cut = min(loan.principal, left)
+            loan.principal -= cut
+            left -= cut
+        chain.build_loans = [loan for loan in chain.build_loans if loan.principal > 0]
+        chain.refresh_debt()
         return ActionResult(action=action, accepted=True, note="ok")
     if kind == "set_mandate" and chain is not None:
         chain.mandate.target_net_margin_bps = int(action.args.get("target_net_margin_bps", 200))
@@ -305,7 +356,9 @@ def _apply_one(snap: Snapshot, action: Action) -> ActionResult:
         return ActionResult(action=action, accepted=True, note="ok")
     if kind == "reenter" and chain is not None:
         chain.status = "active"
-        chain.debt = 0
+        chain.revolver_debt = 0
+        chain.build_loans = []
+        chain.refresh_debt()
         chain.cash = max(0, chain.cash)
         chain.bankrupt_on = None
         closed = [store for store in chain.stores if store.status == "closed"]
@@ -427,7 +480,6 @@ def settle(snap: Snapshot) -> None:
             chain.last_pnl = ChainPnL(week=snap.week)
             continue
         sales = cogs = opex = net = 0
-        debt_share = chain.debt // len(open_stores)
         if chain.cost_cut_until_week and snap.week > chain.cost_cut_until_week:
             chain.cost_cut_pct = 0
         cut = chain.cost_cut_pct if snap.week <= chain.cost_cut_until_week else 0
@@ -445,7 +497,7 @@ def settle(snap: Snapshot) -> None:
                 visit_mult=mult,
                 war_intensity=intensity,
                 cost_cut_pct=cut,
-                debt_share=debt_share,
+                debt_share=0,
                 factors=snap.factors,
                 shelf_index=person.price_index,
             )
@@ -455,7 +507,12 @@ def settle(snap: Snapshot) -> None:
             opex += pnl.opex
             net += pnl.net
         chain.cash += net
-        chain.last_pnl = ChainPnL(week=snap.week, sales=sales, cogs=cogs, opex=opex, net=net)
+        chain.ebitda_trail.append(net)
+        chain.ebitda_trail = chain.ebitda_trail[-52:]
+        from open_late.ai.books import apply_debt_service
+
+        service = apply_debt_service(chain)
+        chain.last_pnl = ChainPnL(week=snap.week, sales=sales, cogs=cogs, opex=opex + service, net=net - service)
     _settle_player(snap)
 
 

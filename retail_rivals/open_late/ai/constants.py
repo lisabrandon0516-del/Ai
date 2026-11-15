@@ -87,10 +87,13 @@ DIFFICULTIES: tuple[str, ...] = ("off", "calm", "standard", "stern")
 # How many of the six unused chains act. Off runs nothing.
 CHAIN_COUNTS: dict[str, int] = {"off": 0, "calm": 2, "standard": 3, "stern": 4}
 
-# A supercenter loan at the shop credit's 2% weekly coupon never pays for itself.
-# Build draws use an 8% annual rate and are taken only when the new door
-# covers that coupon. Distress still draws the same line.
+# The shop revolver uses the player's weekly credit rate. A building does not.
+# A build loan is at most 70% of cost, 8% a year, level principal over 20 years.
 BUILD_WEEKLY_RATE = 0.08 / 52
+BUILD_LTV = 0.70
+BUILD_TERM_WEEKS = 1040
+MIN_CASH_WEEKS = 4
+MIN_LIQUIDITY_WEEKS = 13
 
 # Fixed iteration counts. Never wall-clock. Calm searches less, stern more.
 # The counts stay under the Sunday budget (150 ms mean, 400 ms worst).

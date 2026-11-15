@@ -189,6 +189,127 @@ def test_a_broke_chain_cannot_open_on_credit():
     assert chosen.kind != "open_store"
 
 
+def test_revolver_and_build_loan_are_separate():
+    from open_late.ai.models import BuildLoan
+
+    snap, _provider = make_snapshot(1, difficulty="calm")
+    assert snap.ai is not None
+    chain = next(iter(snap.ai.chains.values()))
+    chain.cash = 20_000_000
+    chain.revolver_debt = 0
+    chain.refresh_debt()
+    loan = 7_000_000
+    action = Action(
+        actor=ActorRef(kind="ceo", id=f"ceo:{chain.chain_id}"),
+        kind="open_store",
+        args={"city": "houston", "site_band": 2, "cost": 10_000_000, "loan": loan, "equity": 3_000_000},
+        reason="ValueMax filed to open a store in Houston.",
+    )
+    result = apply_actions(snap, [action])[0]
+    assert result.accepted is True
+    assert chain.revolver_debt == 0
+    assert chain.build_loans[0].principal == loan
+    assert chain.debt == loan
+    draw = Action(
+        actor=ActorRef(kind="ceo", id=f"ceo:{chain.chain_id}"),
+        kind="raise_capital",
+        args={"amount": 1_000_000},
+        reason="ValueMax drew the shop line.",
+    )
+    apply_actions(snap, [draw])
+    assert chain.revolver_debt == 1_000_000
+    assert chain.build_loans[0].principal == loan
+    assert isinstance(chain.build_loans[0], BuildLoan)
+
+
+def test_build_loan_requires_equity_and_coverage():
+    from open_late.ai.legal import build_loan_terms
+
+    people, _digest = load_personalities()
+    person = people["expander_v1"]
+    chain = RivalChain(
+        chain_id="freshway",
+        personality_id=person.id,
+        price_index=98,
+        cash=4_000_000,
+        credit_line=10_000_000,
+        ebitda_trail=[100_000],
+        stores=[],
+    )
+    # Four million cannot fund a 30% equity stake and still leave four weeks of cost.
+    allowed, loan = build_loan_terms(chain, 20_000_000, weekly_cost=400_000, incremental=80_000, ebitda_52=5_200_000)
+    assert allowed is False
+    assert loan == 0
+    chain.cash = 12_000_000
+    chain.ebitda_trail = [200_000]
+    allowed, loan = build_loan_terms(chain, 20_000_000, weekly_cost=400_000, incremental=80_000, ebitda_52=10_400_000)
+    assert allowed is True
+    assert loan == int(20_000_000 * 0.70)
+    thin, _loan = build_loan_terms(chain, 20_000_000, weekly_cost=400_000, incremental=1_000, ebitda_52=10_400_000)
+    assert thin is False
+
+
+def test_last_store_closes_only_when_it_cannot_earn():
+    from open_late.ai.legal import last_store_cannot_earn
+
+    people, _digest = load_personalities()
+    person = people["premium_v1"]
+    chain = RivalChain(
+        chain_id="bluestar",
+        personality_id=person.id,
+        price_index=109,
+        cash=1_000_000,
+        ebitda_trail=[-50_000] * 8,
+        stores=[
+            RivalStore(id="store:bluestar:seattle:1", city="seattle", opened_on=1, status="open", price_index=109)
+        ],
+    )
+    assert last_store_cannot_earn(chain, next_13w_contribution=-10_000) is True
+    assert last_store_cannot_earn(chain, next_13w_contribution=10_000) is False
+    earning = chain.model_copy(deep=True)
+    earning.ebitda_trail = [20_000] * 8
+    assert last_store_cannot_earn(earning, next_13w_contribution=-10_000) is False
+
+
+def test_close_and_bankruptcy_match():
+    snap, _provider = make_snapshot(1, difficulty="calm")
+    assert snap.ai is not None
+    chain = next(iter(snap.ai.chains.values()))
+    store = chain.stores[0]
+    from open_late.ai.models import ShopperCard
+
+    chain.ebitda_trail = [-80_000] * 8
+    chain.revolver_debt = 500_000
+    chain.refresh_debt()
+    snap.ai.shopper_card = ShopperCard(week=snap.week, visit_mult={store.id: 1})
+    close = Action(
+        actor=ActorRef(kind="ceo", id=f"ceo:{chain.chain_id}"),
+        kind="close_store",
+        args={"store_id": store.id, "city": store.city},
+        reason="ValueMax will close its only door.",
+    )
+    result = apply_actions(snap, [close])[0]
+    assert result.accepted is True
+    assert chain.status == "bankrupt"
+    assert store.status == "closed"
+    assert chain.bankrupt_on == snap.day
+
+
+def test_old_save_migrates():
+    chain = RivalChain.model_validate(
+        {
+            "chain_id": "valuemax",
+            "personality_id": "price_leader_v1",
+            "price_index": 92,
+            "cash": 1_000_000,
+            "debt": 2_500_000,
+        }
+    )
+    assert chain.revolver_debt == 2_500_000
+    assert chain.build_loans == []
+    assert chain.debt == 2_500_000
+
+
 def test_negative_cash_draws_the_credit_line():
     people, _digest = load_personalities()
     person = people["premium_v1"]
