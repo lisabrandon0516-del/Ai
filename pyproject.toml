@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "retail-rivals-ai"
+version = "0.1.0"
+description = "Retail Rivals rival minds. They read the game's factor card and market costs."
+requires-python = ">=3.11"
+dependencies = ["pydantic>=2"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[tool.setuptools.packages.find]
+where = ["retail_rivals"]
+include = ["open_late*"]
+
+[tool.pytest.ini_options]
+pythonpath = ["retail_rivals"]
+testpaths = ["tests"]

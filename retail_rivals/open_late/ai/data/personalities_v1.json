@@ -1,0 +1,65 @@
+{
+  "version": 1,
+  "personalities": [
+    {
+      "id": "price_leader_v1",
+      "archetype": "price_leader",
+      "weights": {
+        "contribution_13w": 0.8,
+        "share_change": 1.5,
+        "cash_risk": 1.1,
+        "mandate_fit": 0.4,
+        "grudge": 1.2,
+        "variety": 0.45,
+        "regret": 0.5
+      },
+      "grudge_gain": 12,
+      "grudge_decay": 4,
+      "temperature": 0.0,
+      "patience_quarters": 3,
+      "price_index": 92,
+      "gross_margin_bps": 2100,
+      "opex_bps": 1750
+    },
+    {
+      "id": "premium_v1",
+      "archetype": "premium",
+      "weights": {
+        "contribution_13w": 1.4,
+        "share_change": 0.6,
+        "cash_risk": 1.3,
+        "mandate_fit": 0.8,
+        "grudge": 0.35,
+        "variety": 0.4,
+        "regret": 0.7
+      },
+      "grudge_gain": 8,
+      "grudge_decay": 5,
+      "temperature": 0.0,
+      "patience_quarters": 4,
+      "price_index": 109,
+      "gross_margin_bps": 2750,
+      "opex_bps": 2450
+    },
+    {
+      "id": "expander_v1",
+      "archetype": "expander",
+      "weights": {
+        "contribution_13w": 0.9,
+        "share_change": 1.2,
+        "cash_risk": 0.35,
+        "mandate_fit": 1.0,
+        "grudge": 0.5,
+        "variety": 0.3,
+        "regret": 0.35
+      },
+      "grudge_gain": 10,
+      "grudge_decay": 4,
+      "temperature": 0.0,
+      "patience_quarters": 2,
+      "price_index": 98,
+      "gross_margin_bps": 2350,
+      "opex_bps": 2050
+    }
+  ]
+}

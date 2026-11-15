@@ -1,0 +1,628 @@
+{
+  "label": "v4",
+  "load_start": 0.716796875,
+  "load_end": 0.08056640625,
+  "runs": [
+    {
+      "seed": 1,
+      "difficulty": "calm",
+      "player_style": "passive",
+      "signature": "bd77759fecf14446b44a8aa7857236de583d885c986f57ed02972fc86006eaa7",
+      "reasons_ok": true,
+      "final_cash": {
+        "bluestar": 3479,
+        "valuemax": 219160
+      },
+      "nets": {
+        "bluestar": -276687,
+        "valuemax": 35144
+      },
+      "sales": {
+        "bluestar": 2102508,
+        "valuemax": 1624320
+      },
+      "action_count": 869
+    },
+    {
+      "seed": 2,
+      "difficulty": "calm",
+      "player_style": "passive",
+      "signature": "c23db664c681913dd5713deaafa475d1b2fee2dbee1611b63966476d69313bb6",
+      "reasons_ok": true,
+      "final_cash": {
+        "everyday": 335410,
+        "valuemax": 241322
+      },
+      "nets": {
+        "everyday": 8738,
+        "valuemax": -3636
+      },
+      "sales": {
+        "everyday": 1623708,
+        "valuemax": 1652274
+      },
+      "action_count": 870
+    },
+    {
+      "seed": 3,
+      "difficulty": "calm",
+      "player_style": "passive",
+      "signature": "70a0d2e868ba9555f05a7868b2da98a61ed910cdcdd6622496eba36c19af6d0e",
+      "reasons_ok": true,
+      "final_cash": {
+        "allinone": 433373,
+        "everyday": 326224
+      },
+      "nets": {
+        "allinone": -18901,
+        "everyday": 37247
+      },
+      "sales": {
+        "allinone": 2159514,
+        "everyday": 1660968
+      },
+      "action_count": 868
+    },
+    {
+      "seed": 1,
+      "difficulty": "calm",
+      "player_style": "price_cutter",
+      "signature": "8ffeb1656ed1eee811655ba94957f48cc857fac0eac7a26649ee5b53f3b26c8d",
+      "reasons_ok": true,
+      "final_cash": {
+        "bluestar": 765924,
+        "valuemax": 242796
+      },
+      "nets": {
+        "bluestar": 40510,
+        "valuemax": 34871
+      },
+      "sales": {
+        "bluestar": 1328274,
+        "valuemax": 1622376
+      },
+      "action_count": 869
+    },
+    {
+      "seed": 2,
+      "difficulty": "calm",
+      "player_style": "price_cutter",
+      "signature": "76135c0e26f1e0e210506be2e1de3bb25ab68100901d8c1dbbd2a63414984892",
+      "reasons_ok": true,
+      "final_cash": {
+        "everyday": 334146,
+        "valuemax": 194282
+      },
+      "nets": {
+        "everyday": 30966,
+        "valuemax": -742
+      },
+      "sales": {
+        "everyday": 1660968,
+        "valuemax": 1344510
+      },
+      "action_count": 871
+    },
+    {
+      "seed": 3,
+      "difficulty": "calm",
+      "player_style": "price_cutter",
+      "signature": "b0e23084cca8df2001d2ce130c3ea9123778d05aa0fe637c107d576fd719117b",
+      "reasons_ok": true,
+      "final_cash": {
+        "allinone": 14664,
+        "everyday": 326224
+      },
+      "nets": {
+        "allinone": 11220,
+        "everyday": 37247
+      },
+      "sales": {
+        "allinone": 1614240,
+        "everyday": 1660968
+      },
+      "action_count": 869
+    },
+    {
+      "seed": 1,
+      "difficulty": "calm",
+      "player_style": "expander",
+      "signature": "358ef2742f41be83c8bdaacc518aa39d13627edf00970109377ae2c010481344",
+      "reasons_ok": true,
+      "final_cash": {
+        "bluestar": 650978,
+        "valuemax": 219160
+      },
+      "nets": {
+        "bluestar": 90860,
+        "valuemax": 35144
+      },
+      "sales": {
+        "bluestar": 2259900,
+        "valuemax": 1624320
+      },
+      "action_count": 877
+    },
+    {
+      "seed": 2,
+      "difficulty": "calm",
+      "player_style": "expander",
+      "signature": "be834ed50d6b70a03eea5a82969ea7a39d7f23dbabdfe67113c76d567728e553",
+      "reasons_ok": true,
+      "final_cash": {
+        "everyday": 335410,
+        "valuemax": 2218480
+      },
+      "nets": {
+        "everyday": 8738,
+        "valuemax": 70105
+      },
+      "sales": {
+        "everyday": 1623708,
+        "valuemax": 2319408
+      },
+      "action_count": 878
+    },
+    {
+      "seed": 3,
+      "difficulty": "calm",
+      "player_style": "expander",
+      "signature": "f10d29ee9b937c7c57cc7dd9833f5893b3a45e818dbda4c19d52ab4606561b40",
+      "reasons_ok": true,
+      "final_cash": {
+        "allinone": 359551,
+        "everyday": 326224
+      },
+      "nets": {
+        "allinone": 71643,
+        "everyday": 37247
+      },
+      "sales": {
+        "allinone": 2319408,
+        "everyday": 1660968
+      },
+      "action_count": 877
+    },
+    {
+      "seed": 1,
+      "difficulty": "standard",
+      "player_style": "passive",
+      "signature": "eab6a27f519f38fedaadc9c25c6ab2725aa48da582e401971b5d494ed5237f4a",
+      "reasons_ok": true,
+      "final_cash": {
+        "bluestar": 149117,
+        "primestop": 113135,
+        "valuemax": 15288030
+      },
+      "nets": {
+        "bluestar": 52585,
+        "primestop": 39150,
+        "valuemax": 23489
+      },
+      "sales": {
+        "bluestar": 2088450,
+        "primestop": 1167750,
+        "valuemax": 772200
+      },
+      "action_count": 985
+    },
+    {
+      "seed": 2,
+      "difficulty": "standard",
+      "player_style": "passive",
+      "signature": "9a3b5e0ed19e6ea4393ced7ea622e097334b659a460e2a7d769b64d244bcfb00",
+      "reasons_ok": true,
+      "final_cash": {
+        "allinone": 1140007,
+        "everyday": 15420921,
+        "valuemax": 171525
+      },
+      "nets": {
+        "allinone": 37744,
+        "everyday": 9175,
+        "valuemax": 53208
+      },
+      "sales": {
+        "allinone": 1170000,
+        "everyday": 812808,
+        "valuemax": 2088450
+      },
+      "action_count": 988
+    },
+    {
+      "seed": 3,
+      "difficulty": "standard",
+      "player_style": "passive",
+      "signature": "96f8f77301a3f20ee0f2a0d6d15fd275b36bace2d3e52bf44ffa1c053592848b",
+      "reasons_ok": true,
+      "final_cash": {
+        "allinone": 180721,
+        "everyday": 15319318,
+        "primestop": 134000
+      },
+      "nets": {
+        "allinone": -108034,
+        "everyday": 25076,
+        "primestop": 39242
+      },
+      "sales": {
+        "allinone": 2104074,
+        "everyday": 772200,
+        "primestop": 1167750
+      },
+      "action_count": 990
+    },
+    {
+      "seed": 1,
+      "difficulty": "standard",
+      "player_style": "price_cutter",
+      "signature": "6b74efc4c1a65e537dbc10bc9fba8153576d300a91163374afc68ebd62fa3d94",
+      "reasons_ok": true,
+      "final_cash": {
+        "bluestar": -56683,
+        "primestop": 285522,
+        "valuemax": 15318266
+      },
+      "nets": {
+        "bluestar": 19340,
+        "primestop": 6862,
+        "valuemax": 18812
+      },
+      "sales": {
+        "bluestar": 1369386,
+        "primestop": 1145340,
+        "valuemax": 793152
+      },
+      "action_count": 989
+    },
+    {
+      "seed": 2,
+      "difficulty": "standard",
+      "player_style": "price_cutter",
+      "signature": "26560a29e566d789ffefba08313c48ff5c13f1d6030332cb4b8bcebc2b6ab73f",
+      "reasons_ok": true,
+      "final_cash": {
+        "allinone": 204126,
+        "everyday": 15343836,
+        "valuemax": -50861
+      },
+      "nets": {
+        "allinone": 42484,
+        "everyday": 19899,
+        "valuemax": 19878
+      },
+      "sales": {
+        "allinone": 1181844,
+        "everyday": 793152,
+        "valuemax": 1369386
+      },
+      "action_count": 992
+    },
+    {
+      "seed": 3,
+      "difficulty": "standard",
+      "player_style": "price_cutter",
+      "signature": "350c84214bb8e4bdc272d27aa3d21268a7a28e42e024e8ef7cb1d5c02a01c060",
+      "reasons_ok": true,
+      "final_cash": {
+        "allinone": -91863,
+        "everyday": 15353244,
+        "primestop": 146476
+      },
+      "nets": {
+        "allinone": 5113,
+        "everyday": 20442,
+        "primestop": 32216
+      },
+      "sales": {
+        "allinone": 1614240,
+        "everyday": 793152,
+        "primestop": 1182636
+      },
+      "action_count": 992
+    },
+    {
+      "seed": 1,
+      "difficulty": "standard",
+      "player_style": "expander",
+      "signature": "9c71c88e108ce88c688f93d3245475a0458df89603abccb4f03bfdd55dd0e6c0",
+      "reasons_ok": true,
+      "final_cash": {
+        "bluestar": 437872,
+        "primestop": 72301,
+        "valuemax": 15288030
+      },
+      "nets": {
+        "bluestar": 52585,
+        "primestop": 22835,
+        "valuemax": 23489
+      },
+      "sales": {
+        "bluestar": 2088450,
+        "primestop": 999900,
+        "valuemax": 772200
+      },
+      "action_count": 948
+    },
+    {
+      "seed": 2,
+      "difficulty": "standard",
+      "player_style": "expander",
+      "signature": "ad5c3400c33046cb6d7bbb36735c6ade4c652ae42b98d34c079e0ad075b97fbf",
+      "reasons_ok": true,
+      "final_cash": {
+        "allinone": 86782,
+        "everyday": 15420921,
+        "valuemax": 368991
+      },
+      "nets": {
+        "allinone": 24050,
+        "everyday": 9175,
+        "valuemax": -111725
+      },
+      "sales": {
+        "allinone": 1031778,
+        "everyday": 812808,
+        "valuemax": 2009214
+      },
+      "action_count": 953
+    },
+    {
+      "seed": 3,
+      "difficulty": "standard",
+      "player_style": "expander",
+      "signature": "7764747d862fdaf0ccd962ea0063a44f53d3f555ac650359b06f4c9f4ed06393",
+      "reasons_ok": true,
+      "final_cash": {
+        "allinone": 340163,
+        "everyday": 15319318,
+        "primestop": 85993
+      },
+      "nets": {
+        "allinone": -112971,
+        "everyday": 25076,
+        "primestop": 22871
+      },
+      "sales": {
+        "allinone": 2009214,
+        "everyday": 772200,
+        "primestop": 999900
+      },
+      "action_count": 953
+    },
+    {
+      "seed": 1,
+      "difficulty": "stern",
+      "player_style": "passive",
+      "signature": "abb6e0f33e2e9ddaa2f77612e1f5e2e370375e62629717e29c567a028e538056",
+      "reasons_ok": true,
+      "final_cash": {
+        "bluestar": 15958444,
+        "everyday": 621398,
+        "primestop": 113135,
+        "valuemax": 15288030
+      },
+      "nets": {
+        "bluestar": 47528,
+        "everyday": 34238,
+        "primestop": 39150,
+        "valuemax": 23489
+      },
+      "sales": {
+        "bluestar": 1131624,
+        "everyday": 1179900,
+        "primestop": 1167750,
+        "valuemax": 772200
+      },
+      "action_count": 1093
+    },
+    {
+      "seed": 2,
+      "difficulty": "stern",
+      "player_style": "passive",
+      "signature": "a1bd9d6a4301516617ee04e6f31e84d0c8e463dd8a4ff86a0d4b977d319fe276",
+      "reasons_ok": true,
+      "final_cash": {
+        "allinone": 1140007,
+        "everyday": 15420921,
+        "primestop": 649717,
+        "valuemax": 32154
+      },
+      "nets": {
+        "allinone": 37744,
+        "everyday": 9175,
+        "primestop": 35030,
+        "valuemax": 32154
+      },
+      "sales": {
+        "allinone": 1170000,
+        "everyday": 812808,
+        "primestop": 1179900,
+        "valuemax": 1131624
+      },
+      "action_count": 1089
+    },
+    {
+      "seed": 3,
+      "difficulty": "stern",
+      "player_style": "passive",
+      "signature": "ff7320c5308ad361f7cd837fabfe562d46dee941d6abbded815cfc60719bdfcc",
+      "reasons_ok": true,
+      "final_cash": {
+        "allinone": 16130946,
+        "everyday": 15319318,
+        "primestop": 134000,
+        "valuemax": 640015
+      },
+      "nets": {
+        "allinone": 46180,
+        "everyday": 25076,
+        "primestop": 39242,
+        "valuemax": 34238
+      },
+      "sales": {
+        "allinone": 1099530,
+        "everyday": 772200,
+        "primestop": 1167750,
+        "valuemax": 1179900
+      },
+      "action_count": 1092
+    },
+    {
+      "seed": 1,
+      "difficulty": "stern",
+      "player_style": "price_cutter",
+      "signature": "a23b2a86b696f2fbdd3f19699b9271a100f3392d6348634dd500ea836ab083cb",
+      "reasons_ok": true,
+      "final_cash": {
+        "bluestar": -599061,
+        "everyday": -84465,
+        "primestop": 285522,
+        "valuemax": 168469
+      },
+      "nets": {
+        "bluestar": -34603,
+        "everyday": -17696,
+        "primestop": 6862,
+        "valuemax": -1238
+      },
+      "sales": {
+        "bluestar": 1153332,
+        "everyday": 1174500,
+        "primestop": 1145340,
+        "valuemax": 1624320
+      },
+      "action_count": 1054
+    },
+    {
+      "seed": 2,
+      "difficulty": "stern",
+      "player_style": "price_cutter",
+      "signature": "faf3ac5212e6071cd20e4e0d34a0358da42bd7b5fc16383bcdd431ef07a3e083",
+      "reasons_ok": true,
+      "final_cash": {
+        "allinone": 204126,
+        "everyday": -4801,
+        "primestop": -266430,
+        "valuemax": -482164
+      },
+      "nets": {
+        "allinone": 42484,
+        "everyday": 6432,
+        "primestop": -14034,
+        "valuemax": -33195
+      },
+      "sales": {
+        "allinone": 1181844,
+        "everyday": 793152,
+        "primestop": 1175364,
+        "valuemax": 1449666
+      },
+      "action_count": 1012
+    },
+    {
+      "seed": 3,
+      "difficulty": "stern",
+      "player_style": "price_cutter",
+      "signature": "cabff132ad2cf3bc7902ead855843505fee5c62c2992efce0f38874a53e27af7",
+      "reasons_ok": true,
+      "final_cash": {
+        "allinone": -145386,
+        "everyday": 259770,
+        "primestop": 146476,
+        "valuemax": -438466
+      },
+      "nets": {
+        "allinone": 9437,
+        "everyday": 40513,
+        "primestop": 32216,
+        "valuemax": 4594
+      },
+      "sales": {
+        "allinone": 1512288,
+        "everyday": 1542420,
+        "primestop": 1182636,
+        "valuemax": 1179072
+      },
+      "action_count": 997
+    },
+    {
+      "seed": 1,
+      "difficulty": "stern",
+      "player_style": "expander",
+      "signature": "cb4cb145194b307b133efc1fd785c3be992111c524387e5f43737f0e20faf5ef",
+      "reasons_ok": true,
+      "final_cash": {
+        "bluestar": 15958444,
+        "everyday": 645770,
+        "primestop": 72301,
+        "valuemax": 15288030
+      },
+      "nets": {
+        "bluestar": 47528,
+        "everyday": 34238,
+        "primestop": 22835,
+        "valuemax": 23489
+      },
+      "sales": {
+        "bluestar": 1131624,
+        "everyday": 1179900,
+        "primestop": 999900,
+        "valuemax": 772200
+      },
+      "action_count": 1056
+    },
+    {
+      "seed": 2,
+      "difficulty": "stern",
+      "player_style": "expander",
+      "signature": "1eb550b924b2201fc3206c4c3b742959f7307343e7a45c16b341a9fbe1cb2c08",
+      "reasons_ok": true,
+      "final_cash": {
+        "allinone": 86782,
+        "everyday": 15420921,
+        "primestop": 674087,
+        "valuemax": 16235014
+      },
+      "nets": {
+        "allinone": 24050,
+        "everyday": 9175,
+        "primestop": 35030,
+        "valuemax": 46180
+      },
+      "sales": {
+        "allinone": 1031778,
+        "everyday": 812808,
+        "primestop": 1179900,
+        "valuemax": 1099530
+      },
+      "action_count": 1053
+    },
+    {
+      "seed": 3,
+      "difficulty": "stern",
+      "player_style": "expander",
+      "signature": "e2d125e185f37b5b5fa518dfd0e1d71365e8c4c3aa9c24f8c43f1fdf72e05090",
+      "reasons_ok": true,
+      "final_cash": {
+        "allinone": 16216693,
+        "everyday": 15319318,
+        "primestop": 85993,
+        "valuemax": 664387
+      },
+      "nets": {
+        "allinone": 46180,
+        "everyday": 25076,
+        "primestop": 22871,
+        "valuemax": 34238
+      },
+      "sales": {
+        "allinone": 1099530,
+        "everyday": 772200,
+        "primestop": 999900,
+        "valuemax": 1179900
+      },
+      "action_count": 1055
+    }
+  ]
+}
