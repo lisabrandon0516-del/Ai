@@ -220,7 +220,7 @@ def test_supplier_terms_are_symmetric():
 
 def test_belief_adapts_within_six_updates():
     memory = ActorMemory(actor_id="ceo:valuemax")
-    for _ in range(4):
+    for _ in range(6):
         update_belief(memory, "price_cut")
     assert belief_means(memory.belief)["price_fighter"] > 0.6
 
@@ -495,15 +495,17 @@ def test_baselines_cover_the_four_policies():
     assert rolled.reason
 
 
-def test_belief_decays_after_the_sample():
-    from open_late.ai.memory import decay_belief
+def test_belief_forgets_before_the_update():
+    from open_late.ai.memory import update_belief
 
     memory = ActorMemory(actor_id="ceo:valuemax")
     memory.belief = {"price_fighter": 9.0, "passive": 1.0, "premium": 1.0, "expander": 1.0}
-    decay_belief(memory, week=1)
-    assert memory.belief["price_fighter"] == 9.0
-    decay_belief(memory, week=27)
-    assert memory.belief["price_fighter"] == pytest.approx(5.0)
+    update_belief(memory, "quiet")
+    assert memory.belief["price_fighter"] == pytest.approx(7.65)
+    assert memory.belief["passive"] == pytest.approx(1.25)
+    for _ in range(40):
+        update_belief(memory, "quiet")
+    assert memory.belief["price_fighter"] == pytest.approx(1.0)
 
 
 def test_price_cutter_reaches_86_and_stops():

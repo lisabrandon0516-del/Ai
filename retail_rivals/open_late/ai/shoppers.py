@@ -76,19 +76,25 @@ def visit_multipliers(
 ) -> dict[str, int]:
     """Integer x1000 visit multipliers for one city, online included.
 
-    This is the Sunday card's formula. A rival's multiplier is its logit
-    share divided by the player's solo-store anchor.
+    One physical door is a full store. Its logit share against online is the
+    anchor, so a lone supercenter does a full week's sales and extra doors
+    split that pool. Where the player has a door, the anchor is that solo store.
     """
     habit = habit or {}
     physical = [store for store in stores if store.get("id") != "online"]
     if not any(store.get("owner") in {"rival", "northline"} for store in physical):
         return {str(store["id"]): 1000 for store in physical}
-    solo_stores = [store for store in stores if store.get("owner") in {"player", "online"}]
     full = choice_shares(stores, segments, income_index=income_index, habit=habit)
+    solo_stores = [store for store in stores if store.get("owner") in {"player", "online"}]
     solo = choice_shares(solo_stores, segments, income_index=income_index, habit=habit) if solo_stores else {}
     player_solo = [share for sid, share in solo.items() if sid != "online"]
-    anchor = sum(player_solo) / len(player_solo) if player_solo else 1.0
-    anchor = anchor or 1.0
+    if player_solo:
+        anchor = sum(player_solo) / len(player_solo) or 1.0
+    else:
+        reference = physical[0]
+        ref_rows = [reference] + [store for store in stores if store.get("id") == "online"]
+        ref = choice_shares(ref_rows, segments, income_index=income_index, habit=habit)
+        anchor = ref.get(str(reference["id"]), 0.0) or 1.0
     mults: dict[str, int] = {}
     for store in physical:
         sid = str(store["id"])
@@ -117,6 +123,37 @@ _SHARE_CACHE: dict[tuple, dict[str, float]] = {}
 _SHARE_CACHE_MAX = 4096
 
 
+_SEGMENT_FP: tuple[object, tuple] | None = None
+
+
+def _segment_fingerprint(segments: dict[str, dict]) -> tuple:
+    """Numeric segment weights. Reused while the same segment table is in hand.
+
+    The share cache still hashes the weights, so two equal tables match. This
+    only avoids rebuilding that tuple on every shopper draw.
+    """
+    global _SEGMENT_FP
+    if _SEGMENT_FP is not None and _SEGMENT_FP[0] is segments:
+        return _SEGMENT_FP[1]
+    weights = tuple(
+        sorted(
+            (
+                name,
+                tuple(
+                    sorted(
+                        (key, round(float(value), 6))
+                        for key, value in coef.items()
+                        if isinstance(value, (int, float))
+                    )
+                ),
+            )
+            for name, coef in segments.items()
+        )
+    )
+    _SEGMENT_FP = (segments, weights)
+    return weights
+
+
 def _choice_key(
     stores: list[dict],
     segments: dict[str, dict],
@@ -138,22 +175,10 @@ def _choice_key(
             for store in stores
         )
     )
-    weights = tuple(
-        sorted(
-            (
-                name,
-                tuple(
-                    sorted(
-                        (key, round(float(value), 6))
-                        for key, value in coef.items()
-                        if isinstance(value, (int, float))
-                    )
-                ),
-            )
-            for name, coef in segments.items()
-        )
-    )
-    digest = hashlib.blake2s(repr((rows, weights, int(income_index))).encode(), digest_size=8).hexdigest()
+    digest = hashlib.blake2s(
+        repr((rows, _segment_fingerprint(segments), int(income_index))).encode(),
+        digest_size=8,
+    ).hexdigest()
     return (digest,)
 
 

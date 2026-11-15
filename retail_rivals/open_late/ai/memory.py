@@ -41,7 +41,16 @@ def sample_player_type(rng: random.Random, means: dict[str, float]) -> str:
 
 
 def update_belief(memory: ActorMemory, event_kind: str) -> None:
+    """Forget a little, then add this week's public evidence.
+
+    Each alpha is multiplied by ``BELIEF_FORGET`` first, and never falls below
+    the prior of 1. The update runs once per observed week.
+    """
+    from open_late.ai.constants import BELIEF_FORGET
+
     alphas = memory.belief_or_prior()
+    if memory.belief:
+        alphas = {name: max(1.0, float(alphas[name]) * BELIEF_FORGET) for name in alphas}
     if event_kind == "price_cut":
         alphas["price_fighter"] += 1.0
     elif event_kind == "price_up":
@@ -51,25 +60,6 @@ def update_belief(memory: ActorMemory, event_kind: str) -> None:
     else:
         alphas["passive"] += 0.25
     memory.belief = alphas
-
-
-def decay_belief(memory: ActorMemory, week: int) -> None:
-    """Pull the posterior toward the prior. Half of the evidence is gone after 26 weeks.
-
-    Call this after the week's sample, so the week that saw the move still uses
-    the undecayed posterior.
-    """
-    if memory.counters.get("belief_week") == week:
-        return
-    previous = int(memory.counters.get("belief_week", week))
-    elapsed = max(0, week - previous)
-    memory.counters["belief_week"] = week
-    if elapsed <= 0 or not memory.belief:
-        return
-    keep = 0.5 ** (elapsed / 26.0)
-    for name in memory.belief_or_prior():
-        current = float(memory.belief.get(name, 1.0))
-        memory.belief[name] = 1.0 + (current - 1.0) * keep
 
 
 def decay_grudge(memory: ActorMemory, decay: int, week: int) -> None:

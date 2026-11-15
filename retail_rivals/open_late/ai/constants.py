@@ -101,6 +101,8 @@ MARKET_EXPANSION_CAP = 0.25
 CANNIBAL_MAX = 0.40
 # The town delays rival permits. The player's filing is not delayed.
 TOWN_DELAYS_PLAYER = False
+# Dirichlet evidence fades before each weekly update. 0.85 a week, floor 1.
+BELIEF_FORGET = 0.85
 
 # Fixed iteration counts. Never wall-clock. Calm searches less, stern more.
 # The counts stay under the Sunday budget (150 ms mean, 400 ms worst).

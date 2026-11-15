@@ -27,9 +27,10 @@ from open_late.ai.constants import (
     factor_key,
 )
 from open_late.ai.legal import clamp_price
-from open_late.ai.memory import add_grudge, append_move, decay_belief, decay_grudge, ensure_memory, update_belief
+from open_late.ai.memory import add_grudge, append_move, decay_grudge, ensure_memory, update_belief
 from open_late.ai.models import (
     AIState,
+    Action,
     ActorRef,
     GameEvent,
     Mandate,
@@ -162,7 +163,6 @@ class RetailAI:
                 chosen = Action(actor=chosen.actor, kind="do_nothing", args={})
                 chosen.reason = f"The {chain_id} chief executive held after the board's veto."
             actions.append(chosen)
-            decay_belief(memory, snap.week)
             append_move(
                 memory,
                 {
@@ -406,22 +406,30 @@ def _acting(snap: Snapshot) -> list[str]:
 
 
 def _board_vetoes(chain: RivalChain, action: Action) -> bool:
-    """A big call that leaves less than eight weeks of operating cost, or breaks the debt cap, does not happen."""
+    """Defence in depth for a big call that already failed the cash cushion or the debt cap.
+
+    Operating cost is opex, rent and interest. Cost of goods is not cash that has to sit in the drawer.
+    A chain with under 13 weeks of history is judged on forecast earnings, which the menu already used.
+    """
     from open_late.ai.books import trailing_ebitda
-    from open_late.ai.constants import BIG_CALLS
+    from open_late.ai.constants import BIG_CALLS, MIN_CASH_WEEKS
 
     if action.kind not in BIG_CALLS:
         return False
-    weekly = chain.last_pnl.cogs + chain.last_pnl.opex
-    if weekly <= 0:
-        return False
+    if action.kind == "open_store":
+        equity = int(action.args.get("equity", action.args.get("cost", 0)))
+        if equity > chain.mandate.capex_budget:
+            return True
+    weekly = chain.last_pnl.opex
     cash_after = chain.cash
     if action.kind == "open_store":
         cash_after -= int(action.args.get("equity", action.args.get("cost", 0)))
     elif action.kind == "raise_capital":
         cash_after += int(action.args.get("amount", 0))
-    if cash_after < 8 * weekly:
+    if weekly > 0 and cash_after < MIN_CASH_WEEKS * weekly:
         return True
+    if len(chain.ebitda_trail) < 13:
+        return False
     earned = trailing_ebitda(chain)
     cap = chain.mandate.max_debt_ratio_x100 / 100.0
     return bool(earned > 0 and chain.refresh_debt() > cap * earned)

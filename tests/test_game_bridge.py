@@ -679,6 +679,76 @@ def test_a_premium_chain_does_not_race_to_the_floor():
     assert int(chosen.args["delta"]) > 0
 
 
+def test_occupied_city_is_not_banned(monkeypatch):
+    """A city the player already occupies stays on the menu when the loan clears."""
+    from open_late.ai.select import argmax
+
+    snap, _provider = make_snapshot(1, difficulty="standard")
+    assert snap.ai is not None
+    person = snap.ai.personalities["expander_v1"]
+    chain = RivalChain(
+        chain_id="primestop",
+        personality_id=person.id,
+        price_index=person.price_index,
+        cash=25_000_000,
+        credit_line=10_000_000,
+        stores=[
+            RivalStore(
+                id="store:primestop:evansville:1",
+                city="evansville",
+                opened_on=1,
+                status="open",
+                price_index=person.price_index,
+            )
+        ],
+    )
+    market = [
+        {
+            "id": "store:player:houston",
+            "chain_id": "player",
+            "owner": "player",
+            "city": "houston",
+            "price_index": 100,
+            "status": "open",
+            "distance_band": 2,
+            "trust": 50,
+        },
+        {
+            "id": "online",
+            "chain_id": "online",
+            "owner": "online",
+            "city": "houston",
+            "price_index": 100,
+            "status": "open",
+            "distance_band": 0,
+            "trust": 50,
+        },
+    ]
+    seen: list = []
+
+    def _record(pairs):
+        seen.extend(pairs)
+        return argmax(pairs)
+
+    monkeypatch.setattr("open_late.ai.actors.ceo.argmax", _record)
+    choose_ceo_action(
+        chain,
+        person,
+        ActorMemory(actor_id="ceo:primestop"),
+        seed=1,
+        week=30,
+        difficulty="standard",
+        opening_cost=19_640_000,
+        wars={},
+        player_price={"houston": 100},
+        market=market,
+        segments=load_segments(),
+        factors=snap.factors,
+        opening_costs={"houston": 19_640_000},
+    )
+    assert any(action.kind == "open_store" and action.args.get("city") == "houston" for action, _utility in seen)
+
+
 def test_chains_do_not_open_on_the_same_sunday():
     snap, _provider = make_snapshot(1, difficulty="stern")
     assert snap.ai is not None

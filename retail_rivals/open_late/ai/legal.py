@@ -99,8 +99,8 @@ def entrant_door(
     probe.revolver_debt = 0
     probe.build_loans = []
     probe.credit_line = ENTRANT_CREDIT_LINE
+    probe.ebitda_trail = []
     probe.refresh_debt()
-    ebitda = trailing_ebitda(probe)
     for city in CITIES:
         cost = int((opening_costs or {}).get(city, 0))
         if cost <= 0:
@@ -123,7 +123,8 @@ def entrant_door(
             factors=factors,
             shelf_index=personality.price_index,
         )
-        allowed, loan = build_loan_terms(probe, cost, pnl.cogs + pnl.opex, pnl.net, ebitda)
+        # A new entrant has no history, so the debt cap uses the full-ramp forecast.
+        allowed, loan = build_loan_terms(probe, cost, pnl.opex, pnl.net, max(0, pnl.net) * 52)
         if not allowed:
             continue
         return {"city": city, "cost": cost, "loan": loan, "equity": cost - loan}
@@ -144,7 +145,7 @@ def ceo_menu(
     raise_amount: int = 2_000_000,
     paydown: int = 1_000_000,
     opening_costs: dict[str, int] | None = None,
-    door_figures: dict[str, tuple[int, int]] | None = None,
+    door_figures: dict[str, tuple[int, ...]] | None = None,
     ebitda_52: int | None = None,
     last_store_failing: bool = False,
 ) -> list[Action]:
@@ -166,8 +167,10 @@ def ceo_menu(
             cost = int((opening_costs or {}).get(city, opening_cost))
             if cost <= 0 or city not in door_figures:
                 continue
-            weekly_cost, incremental = door_figures[city]
-            allowed, loan = build_loan_terms(chain, cost, weekly_cost, incremental, ebitda_52)
+            row = door_figures[city]
+            weekly_cost, incremental = int(row[0]), int(row[1])
+            earned = int(row[2]) if len(row) > 2 else ebitda_52
+            allowed, loan = build_loan_terms(chain, cost, weekly_cost, incremental, earned)
             if not allowed:
                 continue
             rows.append(
@@ -222,10 +225,24 @@ def ceo_menu(
             continue
         rows.append(Action(actor=actor, kind="cut_costs", args={"pct": pct}))
     if big_call_ready(chain, week) and chain.revolver_debt + raise_amount <= chain.credit_line:
-        rows.append(Action(actor=actor, kind="raise_capital", args={"amount": raise_amount}))
-    if chain.refresh_debt() > 0 and chain.cash >= paydown:
-        pay = min(chain.debt, paydown)
-        rows.append(Action(actor=actor, kind="pay_down_debt", args={"amount": pay}))
+        owed = chain.refresh_debt() + raise_amount
+        if len(chain.ebitda_trail) >= 13:
+            base = trailing_ebitda(chain)
+        else:
+            base = max(0, chain.last_pnl.net) * 52
+        cap = chain.mandate.max_debt_ratio_x100 / 100.0
+        # The line is there for a week the drawer is already empty. A voluntary
+        # draw, while cash is still positive, has to stay inside the debt cap.
+        if chain.cash < 0 or (base > 0 and owed <= cap * base):
+            rows.append(Action(actor=actor, kind="raise_capital", args={"amount": raise_amount}))
+    # Extra cash pays the revolver down. The build loan amortises on its own.
+    # The drawer keeps 13 weeks of operating cost (opex, rent and interest).
+    weekly = chain.last_pnl.opex
+    cushion = MIN_LIQUIDITY_WEEKS * weekly if weekly > 0 else 0
+    if chain.revolver_debt > 0 and cushion > 0 and chain.cash > cushion:
+        pay = min(chain.revolver_debt, chain.cash - cushion)
+        if pay > 0:
+            rows.append(Action(actor=actor, kind="pay_down_debt", args={"amount": pay}))
     return rows
 
 

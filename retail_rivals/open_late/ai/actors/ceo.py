@@ -230,6 +230,13 @@ def advance_chain(chain: RivalChain, action: Action, opening_cost: int) -> Rival
         for store in shadow.stores:
             if store.id == sid:
                 store.status = "closed"
+        if not any(store.status == "open" for store in shadow.stores):
+            shadow.cash = 0
+            shadow.revolver_debt = 0
+            shadow.build_loans = []
+            shadow.status = "bankrupt"
+            shadow.ebitda_trail = []
+            shadow.refresh_debt()
     elif kind == "cut_costs":
         shadow.cost_cut_pct = int(args.get("pct", cut))
     return shadow
@@ -304,8 +311,9 @@ def _terms(
     if action.kind == "close_store":
         still = [store for store in chain.stores if store.status == "open" and store.id != action.args.get("store_id")]
         if not still:
-            # Closing the last door gives up whatever the chain has still earned.
-            contribution -= max(0, sum(chain.ebitda_trail[-52:]))
+            # The close is a write-off. The drawer is cleared and the chain is locked out,
+            # so it is not a way to pocket the cash and stop a bad week.
+            contribution = -max(0, chain.cash)
     return {
         "contribution_13w": contribution / 1_000_000.0,
         # /500 keeps one share-point near the weight scale the personalities
@@ -402,6 +410,30 @@ def _continuation_utility(
     factors: dict[str, int] | None = None,
 ) -> float:
     """Our move, their reply, then the best follow-up on that position."""
+    if action.kind == "close_store":
+        still_open = [
+            store
+            for store in chain.stores
+            if store.status == "open" and store.id != action.args.get("store_id")
+        ]
+        if not still_open:
+            # Bankruptcy ends the search. The write-off is the whole value.
+            terms = _terms(
+                action,
+                chain,
+                personality,
+                memory,
+                week=week,
+                opening_cost=opening_cost,
+                visit_mult=visit_mult,
+                shock_bps=0,
+                market=market,
+                segments=segments,
+                income_by_city=income_by_city,
+                player_type=None if market is not None else player_type,
+                factors=factors,
+            )
+            return _utility(terms, personality.weights)
     chain1 = advance_chain(chain, action, _opening_bill(action, opening_cost))
     city = str(action.args.get("city", ""))
     baseline = None
@@ -491,7 +523,7 @@ def _own_shift(market: list[dict], chain: RivalChain, city: str, segments: dict,
     """Sales dollars the new door takes from this chain, and the new door's own sales."""
     own = [row for row in market if row.get("city") == city and row.get("chain_id") == chain.chain_id]
     if not own:
-        return 0, 1
+        return 0, 0
     new = {
         "id": f"probe:{chain.chain_id}:{city}",
         "city": city,
@@ -561,7 +593,29 @@ def choose_ceo_action(
     from open_late.ai.books import trailing_ebitda
     from open_late.ai.forecast import store_pnl
 
-    figures: dict[str, tuple[int, int]] = {}
+    # Weekly operating cost is opex, rent and interest. Cost of goods is paid out of
+    # the week's sales, so it is not part of the cash cushion. A new door is scored
+    # at a full ramp. A chain with under 13 weeks of books uses that forecast.
+    held_opex = 0
+    held_net = 0
+    for store in chain.stores:
+        if store.status != "open":
+            continue
+        held = store_pnl(
+            store,
+            gross_margin_bps=personality.gross_margin_bps,
+            opex_bps=personality.opex_bps,
+            visit_mult=visit_mult,
+            war_intensity=0,
+            cost_cut_pct=chain.cost_cut_pct,
+            debt_share=0,
+            factors=factors,
+            shelf_index=personality.price_index,
+        )
+        held_opex += held.opex
+        held_net += held.net
+    young = len(chain.ebitda_trail) < 13
+    figures: dict[str, tuple[int, int, int]] = {}
     for city, cost in (opening_costs or {}).items():
         if int(cost) <= 0:
             continue
@@ -576,7 +630,7 @@ def choose_ceo_action(
             probe,
             gross_margin_bps=personality.gross_margin_bps,
             opex_bps=personality.opex_bps,
-            visit_mult=visit_mult,
+            visit_mult=1000,
             war_intensity=0,
             cost_cut_pct=chain.cost_cut_pct,
             debt_share=0,
@@ -586,12 +640,14 @@ def choose_ceo_action(
         incremental = pnl.net
         if market and segments:
             stolen, fresh = _own_shift(market, chain, city, segments, income_by_city or {})
-            cannibal = (stolen / fresh) if fresh else (1.0 if stolen else 0.0)
-            if cannibal > CANNIBAL_MAX:
-                incremental = min(incremental, 0)
-            elif pnl.sales > 0:
-                incremental = int(round(pnl.net * max(0, fresh - stolen) / pnl.sales))
-        figures[city] = (pnl.cogs + pnl.opex, incremental)
+            if fresh > 0:
+                cannibal = stolen / fresh
+                if cannibal > CANNIBAL_MAX:
+                    incremental = min(incremental, 0)
+                else:
+                    incremental = int(round(pnl.net * max(0.0, fresh - stolen) / fresh))
+        earned = max(0, held_net + pnl.net) * 52 if young else trailing_ebitda(chain)
+        figures[city] = (held_opex + pnl.opex, incremental, earned)
     menu = ceo_menu(
         chain,
         week,
@@ -601,7 +657,7 @@ def choose_ceo_action(
         raise_amount=raise_amount,
         opening_costs=opening_costs,
         door_figures=figures,
-        ebitda_52=trailing_ebitda(chain),
+        ebitda_52=trailing_ebitda(chain) if not young else max(0, held_net) * 52,
         last_store_failing=_last_store_failing(chain, personality, factors, visit_mult),
     )
     if not menu:
@@ -628,19 +684,8 @@ def choose_ceo_action(
             if focused:
                 continue
         kept.append(action)
-    # Don't build on top of a door that is already there. An empty city is the
-    # only opening, so chains spread out instead of stacking in the first one
-    # that looks profitable.
-    def _occupied(action: Action) -> int:
-        return sum(
-            1
-            for row in (market or [])
-            if row.get("city") == action.args.get("city")
-            and row.get("chain_id") not in {chain.chain_id, "online"}
-            and row.get("id") != "online"
-        )
-
-    kept = [action for action in kept if action.kind != "open_store" or _occupied(action) == 0]
+    # A city that already has a door is still a legal site. The logit and the
+    # cannibal gate decide whether the second door earns its loan.
     menu = kept
 
     scored: list[tuple[Action, float, dict[str, float]]] = []

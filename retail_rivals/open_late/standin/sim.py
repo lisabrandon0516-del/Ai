@@ -165,6 +165,7 @@ def _write_off(chain, day: int) -> None:
     chain.revolver_debt = 0
     chain.build_loans = []
     chain.cash = 0
+    chain.ebitda_trail = []
     chain.refresh_debt()
     for store in chain.stores:
         if store.status != "closed":

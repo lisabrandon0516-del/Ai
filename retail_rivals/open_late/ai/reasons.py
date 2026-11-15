@@ -49,9 +49,10 @@ def ceo_reason(chain_id: str, kind: str, args: dict) -> str:
     if kind == "defend":
         return reason(f"{name} matched a public price in {city}.")
     if kind == "raise_capital":
-        return reason(f"{name} raised capital against its credit line.")
+        amount = int(args.get("amount", 0))
+        return reason(f"{name} drew ${amount // 1_000_000}M on the credit line.")
     if kind == "pay_down_debt":
-        return reason(f"{name} paid down debt.")
+        return reason(f"{name} paid down the credit line.")
     if kind == "do_nothing":
         return reason(f"{name} held its plan this week.")
     return reason(f"{name} took a {kind.replace('_', ' ')} step.")
