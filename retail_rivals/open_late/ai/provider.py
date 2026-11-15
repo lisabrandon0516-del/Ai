@@ -15,6 +15,7 @@ from open_late.ai.actors.others import (
     supplier_actions,
     town_actions,
 )
+from open_late.ai.costs import opening_cost_table, traffic_mult
 from open_late.ai.constants import (
     CHAIN_COUNTS,
     CHAINS,
@@ -141,6 +142,8 @@ class RetailAI:
                 market=_market_stores(snap),
                 segments=self.segments,
                 income_by_city=income,
+                factors=snap.factors,
+                opening_costs=opening_cost_table(snap.factors),
             )
             actions.append(chosen)
             append_move(
@@ -237,6 +240,12 @@ class RetailAI:
             stores=stores,
             income_by_city=income,
         )
+        for store in stores:
+            city = str(store.get("city") or "")
+            store_id = str(store.get("id") or "")
+            if not city or store_id not in card.visit_mult:
+                continue
+            card.visit_mult[store_id] = int(round(card.visit_mult[store_id] * traffic_mult(snap.factors, city)))
         snap.ai.shopper_card = card
         return card
 
@@ -278,23 +287,23 @@ class RetailAI:
             for chain_id in _acting(snap):
                 chain = snap.ai.chains[chain_id]
                 memory = ensure_memory(snap.ai.memories, f"ceo:{chain_id}")
-            previous = int(memory.ref_price.get(event.city, index))
-            delta = previous - index
-            if delta > 2:
-                update_belief(memory, "price_cut")
-            elif delta < -2:
-                update_belief(memory, "price_up")
-            else:
-                update_belief(memory, "quiet")
-            if delta >= 3 and _has_open_store(chain, event.city):
-                person = snap.ai.personalities[chain.personality_id]
-                add_grudge(memory, person.grudge_gain)
-            if abs(delta) > 2:
-                append_move(
-                    memory,
-                    {"week": event.week, "kind": "observed_price", "city": event.city, "delta": delta},
-                )
-            memory.ref_price[event.city] = index
+                previous = int(memory.ref_price.get(event.city, index))
+                delta = previous - index
+                if delta > 2:
+                    update_belief(memory, "price_cut")
+                elif delta < -2:
+                    update_belief(memory, "price_up")
+                else:
+                    update_belief(memory, "quiet")
+                if delta >= 3 and _has_open_store(chain, event.city):
+                    person = snap.ai.personalities[chain.personality_id]
+                    add_grudge(memory, person.grudge_gain)
+                if abs(delta) > 2:
+                    append_move(
+                        memory,
+                        {"week": event.week, "kind": "observed_price", "city": event.city, "delta": delta},
+                    )
+                memory.ref_price[event.city] = index
         elif event.name == "PlayerStoreOpened" and event.city:
             for chain_id in _acting(snap):
                 chain = snap.ai.chains[chain_id]

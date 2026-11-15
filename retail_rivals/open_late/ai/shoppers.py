@@ -93,6 +93,33 @@ def visit_multipliers(
     return mults
 
 
+_SHARE_CACHE: dict[tuple, dict[str, float]] = {}
+_SHARE_CACHE_MAX = 4096
+
+
+def _choice_key(
+    stores: list[dict],
+    segments: dict[str, dict],
+    income_index: int,
+    habit: dict[str, float],
+) -> tuple:
+    rows = tuple(
+        sorted(
+            (
+                str(store.get("id", "")),
+                int(store.get("price_index", 100)),
+                int(store.get("distance_band", 1)),
+                int(store.get("trust", 50)),
+                int(store.get("promo", 0)),
+                float(store.get("stockouts", 0)),
+                float(habit.get(str(store.get("id", "")), 0.0)),
+            )
+            for store in stores
+        )
+    )
+    return (id(segments), int(income_index), rows)
+
+
 def choice_shares(
     stores: list[dict],
     segments: dict[str, dict],
@@ -102,6 +129,10 @@ def choice_shares(
 ) -> dict[str, float]:
     """Segment-weighted choice shares, including an online option if present."""
     habit = habit or {}
+    key = _choice_key(stores, segments, income_index, habit)
+    cached = _SHARE_CACHE.get(key)
+    if cached is not None:
+        return cached
     mix = segment_mix(income_index)
     totals = {str(store["id"]): 0.0 for store in stores}
     for name in SEGMENTS:
@@ -114,6 +145,9 @@ def choice_shares(
         weight = mix[name]
         for store_id, share in shares.items():
             totals[store_id] += weight * share
+    if len(_SHARE_CACHE) >= _SHARE_CACHE_MAX:
+        _SHARE_CACHE.clear()
+    _SHARE_CACHE[key] = totals
     return totals
 
 

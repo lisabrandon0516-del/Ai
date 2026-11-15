@@ -72,6 +72,8 @@ def test_hashseed_does_not_change_the_run():
     other = os.environ.copy()
     base["PYTHONHASHSEED"] = "0"
     other["PYTHONHASHSEED"] = "1"
+    base["PYTHONPATH"] = str(ROOT / "retail_rivals")
+    other["PYTHONPATH"] = str(ROOT / "retail_rivals")
     left = subprocess.check_output([sys.executable, "-c", code], env=base, cwd=ROOT)
     right = subprocess.check_output([sys.executable, "-c", code], env=other, cwd=ROOT)
     assert left == right
@@ -421,7 +423,7 @@ def test_save_stays_under_cap_for_26_weeks():
 
 def test_no_network_or_engine_rng_in_the_package():
     banned = {"time", "socket", "urllib", "http", "requests", "openai", "asyncio"}
-    for path in (ROOT / "open_late" / "ai").rglob("*.py"):
+    for path in (ROOT / "retail_rivals" / "open_late" / "ai").rglob("*.py"):
         tree = ast.parse(path.read_text(encoding="utf-8"))
         for node in ast.walk(tree):
             if isinstance(node, ast.Import):

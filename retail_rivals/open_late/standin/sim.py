@@ -1,9 +1,7 @@
-"""Deterministic stand-in for the game.
+"""Deterministic stand-in for stepping the minds.
 
-This is not the corporate sim. It exists so the AI can be initialized, stepped,
-and checked without that game. Costs here are local defaults, passed into the
-minds through the snapshot, and the same numbers are used when an action is
-applied.
+Opening cost, rent, and the factor card come from the game's published
+tables. The stand-in applies the actions. It does not fork the weekly engine.
 """
 
 from __future__ import annotations
@@ -16,6 +14,7 @@ from open_late.ai.constants import (
     SUPPLIERS,
     week_of,
 )
+from open_late.ai.costs import city_opening_cost, game_factors
 from open_late.ai.forecast import card_units, store_pnl
 from open_late.ai.legal import clamp_price, stamp_cooldowns
 from open_late.ai.models import (
@@ -26,11 +25,9 @@ from open_late.ai.models import (
     LogRow,
     RivalStore,
 )
-from open_late.ai.observation import national_factors
 from open_late.ai.provider import RetailAI
 from open_late.ai.snapshot import Snapshot
 
-OPENING_COST = 6_000_000
 REMODEL_COST = 500_000
 RAISE_AMOUNT = 2_000_000
 
@@ -68,8 +65,7 @@ def make_snapshot(
     personalities: dict | None = None,
 ) -> tuple[Snapshot, RetailAI]:
     provider = provider or RetailAI(personalities=personalities)
-    factors = national_factors(100)
-    factors["95"] = 100
+    factors = game_factors()
     snap = Snapshot(
         seed=seed,
         day=1,
@@ -77,7 +73,7 @@ def make_snapshot(
         difficulty=difficulty,
         ai_enabled=ai_enabled,
         player_chain_id=player_chain,
-        opening_cost=OPENING_COST,
+        opening_cost=city_opening_cost("seattle", factors),
         remodel_cost=REMODEL_COST,
         raise_amount=RAISE_AMOUNT,
         factors=factors,
@@ -142,8 +138,21 @@ def apply_actions(snap: Snapshot, actions: list[Action]) -> list[ActionResult]:
     return results
 
 
+_REPEAT_KINDS = frozenset({"allocate", "offer_terms", "set_local_price", "set_focus", "set_staffing"})
+
+
 def _append_log(snap: Snapshot, action: Action, result: ActionResult) -> None:
     assert snap.ai is not None
+    # A manager or supplier who repeats last week's exact decision does not
+    # grow the save. The action still applies. A 26-week stern log has to
+    # stay under 150 KB, and those repeats are most of the rows.
+    if action.kind in _REPEAT_KINDS:
+        for row in reversed(snap.ai.log):
+            previous = row.action
+            if previous.actor.id == action.actor.id and previous.kind == action.kind:
+                if previous.args == action.args:
+                    return
+                break
     snap.ai.log.append(LogRow(day=snap.day, week=snap.week, action=action, result=result))
     floor = snap.week - (LOG_WEEKS - 1)
     snap.ai.log = [row for row in snap.ai.log if row.week >= floor]
@@ -166,8 +175,7 @@ def _apply_one(snap: Snapshot, action: Action) -> ActionResult:
         return ActionResult(action=action, accepted=True, note="ok")
     if kind == "open_store" and chain is not None:
         cost = int(action.args.get("cost", snap.opening_cost))
-        room = chain.cash + max(0, chain.credit_line - chain.debt)
-        if room < cost or chain.status == "bankrupt":
+        if cost <= 0 or chain.cash < cost or chain.status == "bankrupt":
             return ActionResult(action=action, accepted=False, note="rejected: cash")
         city = str(action.args["city"])
         chain.cash -= cost
@@ -354,8 +362,7 @@ def _apply_one(snap: Snapshot, action: Action) -> ActionResult:
         "schedule_inspection",
         "set_bag_rule",
     }:
-        if snap.ai is not None:
-            snap.ai.permits[str(action.args.get("factor_id", kind))] = int(action.args.get("delta", 0))
+        _apply_town_rule(snap, action)
         return ActionResult(action=action, accepted=True, note="ok")
     if kind == "set_price_index":
         snap.northline["price_index"] = clamp_price(
@@ -406,6 +413,7 @@ def settle(snap: Snapshot) -> None:
                 war_intensity=intensity,
                 cost_cut_pct=cut,
                 debt_share=debt_share,
+                factors=snap.factors,
             )
             store.weekly_sales = pnl.sales
             sales += pnl.sales
@@ -431,6 +439,23 @@ def _settle_player(snap: Snapshot) -> None:
     snap.public["player_weekly_sales"] = sales_out
 
 
+def _apply_town_rule(snap: Snapshot, action: Action) -> None:
+    """Write the town's rule onto the factor card the forecast and the books read."""
+    fid = int(action.args.get("factor_id", 0))
+    cities = [str(city) for city in action.args.get("cities") or []]
+    keys = [str(fid)] + [f"{fid}:{city}" for city in cities]
+    if "value" in action.args:
+        value = int(action.args["value"])
+        for key in keys:
+            snap.factors[key] = value
+    else:
+        delta = int(action.args.get("delta", 0))
+        for key in keys:
+            snap.factors[key] = int(snap.factors.get(key, snap.factors.get(str(fid), 100))) + delta
+    if snap.ai is not None:
+        snap.ai.permits[str(fid)] = int(action.args.get("delta", action.args.get("value", 0)))
+
+
 def _intensity(snap: Snapshot, city: str) -> int:
     until = int(snap.public.get("war_until", {}).get(city, 0))
     if snap.week <= until:
@@ -454,8 +479,7 @@ def simulate(
     ceo_kinds: dict[str, list[str]] = {}
     reasons_ok = True
     for _ in range(weeks):
-        inflation = int(snap.factors.get("95", 100))
-        snap.opening_cost = int(round(OPENING_COST * inflation / 100))
+        snap.opening_cost = city_opening_cost("seattle", snap.factors)
         actions = provider.weekly(snap) if ai_enabled and difficulty != "off" else []
         for action in actions:
             if not action.reason or len(action.reason) > 160:

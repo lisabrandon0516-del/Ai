@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from open_late.ai.constants import (
+    CITIES,
     NORTHLINE_PRICE_MAX,
     NORTHLINE_PRICE_MIN,
     SUPPLIER_NAMES,
@@ -54,7 +55,7 @@ def board_actions(
         actions.append(_board(actor, chain, "file_bankruptcy", {}))
         memory.counters["filed"] = 1
 
-    quarter = week % 13 == 0
+    quarter = week > 0 and week % 13 == 0
     if not quarter and not actions:
         return actions
 
@@ -68,8 +69,16 @@ def board_actions(
             "restore_active": 1 if chain.status == "distressed" and chain.cash >= 0 else 0,
         }
         actions.append(_board(actor, chain, "set_mandate", mandate))
+        sales = chain.last_pnl.sales
+        margin_bps = int(round(chain.last_pnl.net / sales * 10_000)) if sales else 0
+        target = chain.mandate.target_net_margin_bps
+        if margin_bps < target:
+            memory.counters["quarters_under"] = memory.counters.get("quarters_under", 0) + 1
+        else:
+            memory.counters["quarters_under"] = 0
         under = memory.counters.get("quarters_under", 0)
         if under >= personality.patience_quarters:
+            memory.counters["quarters_under"] = 0
             current = personality.archetype if personality.archetype in _CYCLE else "price_leader"
             options = [name for name in _CYCLE if name != current]
             pick = options[ai_rng(seed, "ai.board", week, chain.chain_id, "replace").randrange(len(options))]
@@ -254,32 +263,34 @@ def town_actions(
                 reason=town_reason(city, "permit", delay),
             )
         )
-    if week % 4 == 0:
-        rules = {
-            17: "schedule_road_work",
-            104: "sales_tax_drift",
-            107: "propose_wage_floor",
-            108: "set_fair_schedule",
-            109: "schedule_inspection",
-            110: "set_bag_rule",
-        }
-        for fid in sorted(rules):
-            for city in ("",):
-                key = str(fid) if not city else f"{fid}:{city}"
-                value = int(factors.get(key, factors.get(str(fid), 100)))
-                delta = max(-2, min(2, (value - 100) // 25))
-                if delta == 0:
-                    continue
-                actor = ActorRef(kind="town", id="town:national")
-                kind = rules[fid]
-                actions.append(
-                    Action(
-                        actor=actor,
-                        kind=kind,
-                        args={"factor_id": fid, "delta": delta},
-                        reason=town_reason("", kind),
-                    )
-                )
+    if week > 0 and week % 4 == 0:
+        # One rule a month. Neutral factors used to produce a zero delta, so
+        # the town never moved anything the forecast could read.
+        rules = (
+            (17, "schedule_road_work", "flag"),
+            (107, "propose_wage_floor", "intensity"),
+            (104, "sales_tax_drift", "walk"),
+            (108, "set_fair_schedule", "walk"),
+            (109, "schedule_inspection", "flag"),
+            (110, "set_bag_rule", "flag"),
+        )
+        fid, kind, mode = rules[((week // 4) - 1) % len(rules)]
+        actor = ActorRef(kind="town", id="town:national")
+        if mode == "flag":
+            args: dict = {"factor_id": fid, "value": 1, "cities": list(CITIES)}
+        elif mode == "intensity":
+            args = {"factor_id": fid, "value": 4, "cities": list(CITIES)}
+        else:
+            current = int(factors.get(str(fid), 100))
+            args = {"factor_id": fid, "delta": 2 if current < 106 else -2, "cities": list(CITIES)}
+        actions.append(
+            Action(
+                actor=actor,
+                kind=kind,
+                args=args,
+                reason=town_reason("", kind),
+            )
+        )
     return actions
 
 

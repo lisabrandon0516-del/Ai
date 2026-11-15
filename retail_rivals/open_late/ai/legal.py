@@ -31,6 +31,7 @@ def _ready(chain: RivalChain, key: str, week: int) -> bool:
 
 
 def funds(chain: RivalChain) -> int:
+    """Cash plus undrawn credit. Doors and remodels spend cash, not this total."""
     room = max(0, chain.credit_line - chain.debt)
     return chain.cash + room
 
@@ -48,6 +49,7 @@ def ceo_menu(
     remodel_cost: int = 500_000,
     raise_amount: int = 2_000_000,
     paydown: int = 1_000_000,
+    opening_costs: dict[str, int] | None = None,
 ) -> list[Action]:
     """Fixed menu. Infeasible rows are omitted so selection stays inside the rules."""
     actor = ActorRef(kind="ceo", id=f"ceo:{chain.chain_id}")
@@ -60,8 +62,12 @@ def ceo_menu(
         if PRICE_INDEX_MIN <= nxt <= PRICE_INDEX_MAX:
             rows.append(Action(actor=actor, kind="set_chain_price_index", args={"delta": delta}))
     open_ok = _ready(chain, "opening", week) and big_call_ready(chain, week)
-    if open_ok and funds(chain) >= opening_cost:
+    # A new door is paid from the drawer. Undrawn credit is not cash.
+    if open_ok:
         for city in CITIES:
+            cost = int((opening_costs or {}).get(city, opening_cost))
+            if cost <= 0 or chain.cash < cost:
+                continue
             here = [
                 store
                 for store in chain.stores
@@ -73,7 +79,7 @@ def ceo_menu(
                 Action(
                     actor=actor,
                     kind="open_store",
-                    args={"city": city, "site_band": 2, "cost": opening_cost},
+                    args={"city": city, "site_band": 2, "cost": cost},
                 )
             )
     for store in chain.stores:
@@ -87,7 +93,7 @@ def ceo_menu(
                     args={"store_id": store.id, "city": store.city},
                 )
             )
-        if funds(chain) >= remodel_cost:
+        if chain.cash >= remodel_cost:
             rows.append(
                 Action(
                     actor=actor,

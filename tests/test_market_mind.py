@@ -297,7 +297,8 @@ def test_a_fighter_belief_changes_the_weekly_choice():
         ),
         **common,
     )
-    assert fighter.kind == "cut_costs"
+    assert fighter.kind == "set_chain_price_index"
+    assert int(fighter.args["delta"]) > 0
     assert quiet.kind == "set_chain_price_index"
     assert int(quiet.args["delta"]) < 0
 

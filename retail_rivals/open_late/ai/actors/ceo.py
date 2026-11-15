@@ -39,7 +39,14 @@ def _hostility(action: Action) -> float:
     return 0.0
 
 
-def _mandate_fit(action: Action, growth: int, archetype: str) -> float:
+def _mandate_fit(
+    action: Action,
+    growth: int,
+    archetype: str,
+    *,
+    chain_price: int = 100,
+    shelf: int = 100,
+) -> float:
     tilt = growth / 100.0
     if action.kind == "open_store":
         return tilt
@@ -49,11 +56,38 @@ def _mandate_fit(action: Action, growth: int, archetype: str) -> float:
         return tilt * 0.6
     if action.kind == "cut_costs":
         return 1.0 - tilt
-    if action.kind == "set_chain_price_index" and int(action.args.get("delta", 0)) < 0:
-        return 0.8 if archetype == "price_leader" else 0.3
-    if action.kind == "set_chain_price_index" and int(action.args.get("delta", 0)) > 0:
-        return 0.8 if archetype == "premium" else 0.2
+    if action.kind == "set_chain_price_index":
+        delta = int(action.args.get("delta", 0))
+        if delta < 0:
+            fit = 0.8 if archetype == "price_leader" else 0.3
+        elif delta > 0:
+            fit = 0.8 if archetype == "premium" else 0.2
+        else:
+            fit = 0.25
+        before = abs(chain_price - shelf)
+        after = abs(chain_price + delta - shelf)
+        if after < before:
+            fit += 0.35
+        elif after > before:
+            fit -= 0.25
+        return fit
     return 0.25
+
+
+def _opening_bill(action: Action, opening_cost: int) -> int:
+    if action.kind == "open_store":
+        return int(action.args.get("cost", opening_cost))
+    return opening_cost
+
+
+def _cash_risk(action: Action, chain: RivalChain, p_negative: float) -> float:
+    """Once the drawer is empty, drawing the credit line is the move that keeps the chain alive."""
+    undrawn = chain.debt < chain.credit_line
+    if chain.cash < 0 and undrawn:
+        if action.kind == "raise_capital":
+            return 8.0
+        return -2.0
+    return -p_negative
 
 
 def _regret(action: Action, memory: ActorMemory, week: int) -> float:
@@ -165,17 +199,19 @@ def _terms(
     income_by_city: dict[str, int] | None = None,
     player_type: str | None = None,
     baseline_market: list[dict] | None = None,
+    factors: dict[str, int] | None = None,
 ) -> dict[str, float]:
     scaled = visit_mult
     if market is None and player_type:
         scaled = int(round(visit_mult * _REPLY_SCALE.get(player_type, 1.0)))
+    bill = _opening_bill(action, opening_cost)
     projected = project_action(
         chain,
         gross_margin_bps=personality.gross_margin_bps,
         opex_bps=personality.opex_bps,
         kind=action.kind,
         args=action.args,
-        opening_cost=opening_cost,
+        opening_cost=bill,
         visit_mult=scaled,
         shock_bps=shock_bps,
         market=market,
@@ -183,6 +219,7 @@ def _terms(
         income_by_city=income_by_city,
         player_type=player_type,
         baseline_market=baseline_market,
+        factors=factors,
     )
     last = ""
     if memory.moves:
@@ -192,8 +229,14 @@ def _terms(
         # /500 keeps one share-point near the weight scale the personalities
         # shipped with. Raw basis points would drown every other term.
         "share_change": projected.share_change_bps / 500.0,
-        "cash_risk": -projected.p_cash_negative,
-        "mandate_fit": _mandate_fit(action, chain.mandate.growth_vs_profit, personality.archetype),
+        "cash_risk": _cash_risk(action, chain, projected.p_cash_negative),
+        "mandate_fit": _mandate_fit(
+            action,
+            chain.mandate.growth_vs_profit,
+            personality.archetype,
+            chain_price=chain.price_index,
+            shelf=personality.price_index,
+        ),
         "grudge": (memory.grudge / 100.0) * _hostility(action),
         "variety": -1.0 if last == action.kind else 0.0,
         "regret": _regret(action, memory, week),
@@ -216,6 +259,7 @@ def _blended_terms(
     market: list[dict] | None,
     segments: dict | None,
     income_by_city: dict[str, int] | None,
+    factors: dict[str, int] | None = None,
 ) -> dict[str, float]:
     means = belief_means(memory.belief_or_prior())
     totals: dict[str, float] = {}
@@ -236,6 +280,7 @@ def _blended_terms(
             segments=segments,
             income_by_city=income_by_city,
             player_type=name,
+            factors=factors,
         )
         for key, value in terms.items():
             totals[key] = totals.get(key, 0.0) + prob * value
@@ -255,9 +300,10 @@ def _continuation_utility(
     market: list[dict] | None,
     segments: dict | None,
     income_by_city: dict[str, int] | None,
+    factors: dict[str, int] | None = None,
 ) -> float:
     """Our move, their reply, then the best follow-up on that position."""
-    chain1 = advance_chain(chain, action, opening_cost)
+    chain1 = advance_chain(chain, action, _opening_bill(action, opening_cost))
     city = str(action.args.get("city", ""))
     baseline = None
     positioned = market
@@ -280,6 +326,7 @@ def _continuation_utility(
             income_by_city=income_by_city,
             player_type=None if market is not None else player_type,
             baseline_market=baseline,
+            factors=factors,
         )
         utility = _utility(terms, personality.weights)
         if best is None or utility > best:
@@ -301,6 +348,7 @@ def _expectimax(
     market: list[dict] | None = None,
     segments: dict | None = None,
     income_by_city: dict[str, int] | None = None,
+    factors: dict[str, int] | None = None,
 ) -> tuple[float, dict[str, float]]:
     means = belief_means(memory.belief_or_prior())
     total = 0.0
@@ -320,6 +368,7 @@ def _expectimax(
             market=market,
             segments=segments,
             income_by_city=income_by_city,
+            factors=factors,
         )
     base = _blended_terms(
         action,
@@ -332,6 +381,7 @@ def _expectimax(
         market=market,
         segments=segments,
         income_by_city=income_by_city,
+        factors=factors,
     )
     if iters <= 0:
         return _utility(base, personality.weights), base
@@ -355,6 +405,8 @@ def choose_ceo_action(
     market: list[dict] | None = None,
     segments: dict | None = None,
     income_by_city: dict[str, int] | None = None,
+    factors: dict[str, int] | None = None,
+    opening_costs: dict[str, int] | None = None,
 ) -> Action:
     menu = ceo_menu(
         chain,
@@ -363,6 +415,7 @@ def choose_ceo_action(
         wars,
         remodel_cost=remodel_cost,
         raise_amount=raise_amount,
+        opening_costs=opening_costs,
     )
     if not menu:
         actor_id = f"ceo:{chain.chain_id}"
@@ -390,6 +443,7 @@ def choose_ceo_action(
             market=market,
             segments=segments,
             income_by_city=income_by_city,
+            factors=factors,
         )
         scored.append((action, _utility(terms, personality.weights), terms))
 
@@ -410,6 +464,7 @@ def choose_ceo_action(
             market=market,
             segments=segments,
             income_by_city=income_by_city,
+            factors=factors,
         )
         for index, row in enumerate(scored):
             if row[0] is action:

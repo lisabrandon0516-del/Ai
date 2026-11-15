@@ -1,8 +1,8 @@
 # Retail Rivals AI
 
-This repository is the rival, shopper, supplier, town, and advisor logic for Retail Rivals.
+This repository is Retail Rivals plus the rival, shopper, supplier, town, and advisor minds.
 
-The corporate sim is not here. Nothing in this tree reads or patches that game. `open_late/ai` is the minds. `open_late/standin` is a small deterministic world so those minds can be stepped and tested on their own. When the game exists, it can call `RetailAI` and apply the actions itself.
+The game lives in `retail_rivals/open_late`. The minds are `retail_rivals/open_late/ai`. Look-ahead reads the game's factor card and market costs (opening cost, factor 95, factor 88 rent). It does not fork the weekly engine. `open_late/standin` steps those actions so the minds can be tested on their own. A Sunday caller can take the actions `RetailAI` returns and apply them.
 
 A CEO scores a move on the same city logit the Sunday shopper card uses. Dollar sales are that traffic times the shelf price. The score is the belief-weighted average of four player replies (price fighter, premium, expander, passive). Big calls then take one seeded reply and the best follow-up. `tools/tune_personalities.py` rescores weight nudges on that stand-in.
 

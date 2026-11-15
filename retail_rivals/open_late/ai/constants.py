@@ -87,12 +87,12 @@ DIFFICULTIES: tuple[str, ...] = ("off", "calm", "standard", "stern")
 # How many of the six unused chains act. Off runs nothing.
 CHAIN_COUNTS: dict[str, int] = {"off": 0, "calm": 2, "standard": 3, "stern": 4}
 
-# Fixed iteration counts. Never wall-clock. Under the spec's 400 example cap.
-# Calm searches less, stern searches more, on the same difficulty field.
-SEARCH_ITERS: dict[str, int] = {"off": 0, "calm": 8, "standard": 16, "stern": 32}
+# Fixed iteration counts. Never wall-clock. Calm searches less, stern more.
+# The counts stay under the Sunday budget (150 ms mean, 400 ms worst).
+SEARCH_ITERS: dict[str, int] = {"off": 0, "calm": 4, "standard": 6, "stern": 8}
 
 # Top myopic big-call candidates that receive expectimax, per chain per week.
-SEARCH_SHORTLIST = 3
+SEARCH_SHORTLIST = 2
 
 BIG_CALLS: frozenset[str] = frozenset(
     {"open_store", "close_store", "start_price_war", "raise_capital"}
