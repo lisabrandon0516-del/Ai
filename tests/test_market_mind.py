@@ -13,7 +13,7 @@ from open_late.ai.market import apply_player_reply
 from open_late.ai.memory import belief_means
 from open_late.ai.models import Action, ActorMemory, ActorRef, RivalChain, RivalStore
 from open_late.ai.personalities import load_personalities
-from open_late.ai.shoppers import load_segments, visit_multipliers
+from open_late.ai.shoppers import _SHARE_CACHE, choice_shares, load_segments, visit_multipliers
 from open_late.standin.sim import simulate
 from tools.tune_personalities import archetype_gap, evaluate, tune_generation
 
@@ -369,3 +369,22 @@ def test_fitness_uses_survival_share_and_archetype_distance():
     apart = archetype_gap({"premium": ["do_nothing", "do_nothing"], "price_leader": ["start_price_war", "promo"]})
     assert apart > same
     assert same == 0
+
+
+def test_share_cache_does_not_cross_markets():
+    segments = load_segments()
+    stores = [
+        {"id": "a", "owner": "player", "price_index": 110, "distance_band": 1, "trust": 60, "promo": 0, "stockouts": 0},
+        {"id": "b", "owner": "rival", "price_index": 90, "distance_band": 1, "trust": 50, "promo": 0, "stockouts": 0},
+        {"id": "online", "owner": "online", "price_index": 100, "distance_band": 2, "trust": 50, "promo": 0, "stockouts": 0},
+    ]
+    _SHARE_CACHE.clear()
+    first = choice_shares(stores, segments)
+    cheaper = [dict(row) for row in stores]
+    cheaper[1] = dict(cheaper[1], price_index=80)
+    second = choice_shares(cheaper, segments)
+    assert first != second
+    shifted = copy.deepcopy(segments)
+    shifted["value_stretchers"]["b_price"] = float(shifted["value_stretchers"]["b_price"]) - 4
+    third = choice_shares(stores, shifted)
+    assert third != first

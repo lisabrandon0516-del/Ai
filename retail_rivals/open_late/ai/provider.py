@@ -15,6 +15,7 @@ from open_late.ai.actors.others import (
     supplier_actions,
     town_actions,
 )
+from open_late.ai.context import WeekContext
 from open_late.ai.costs import opening_cost_table, traffic_mult
 from open_late.ai.constants import (
     CHAIN_COUNTS,
@@ -99,6 +100,16 @@ class RetailAI:
 
         actions: list[Action] = []
         acting = _acting(snap)
+        week_ctx = WeekContext(
+            week=snap.week,
+            factors=snap.factors,
+            opening_costs=opening_cost_table(snap.factors),
+            income_by_city={
+                city: int(snap.factors.get(factor_key(14, city), snap.factors.get("14", 100))) for city in CITIES
+            },
+            market=_market_stores(snap),
+            segments=self.segments,
+        )
         for chain_id in acting:
             chain = state.chains[chain_id]
             person = state.personalities[chain.personality_id]
@@ -123,9 +134,6 @@ class RetailAI:
             cities = {store.city for store in chain.stores if store.status in {"open", "building"}}
             observation = _observe(snap, ActorRef(kind="ceo", id=f"ceo:{chain_id}"), cities, _own_chain(chain))
             prices = {city: int(index) for city, index in observation.public.get("player_price_index", {}).items()}
-            income = {
-                city: int(snap.factors.get(factor_key(14, city), snap.factors.get("14", 100))) for city in CITIES
-            }
             chosen = choose_ceo_action(
                 chain,
                 person,
@@ -139,11 +147,7 @@ class RetailAI:
                 visit_mult=_visit_mult(state, chain),
                 remodel_cost=snap.remodel_cost,
                 raise_amount=snap.raise_amount,
-                market=_market_stores(snap),
-                segments=self.segments,
-                income_by_city=income,
-                factors=snap.factors,
-                opening_costs=opening_cost_table(snap.factors),
+                context=week_ctx,
             )
             actions.append(chosen)
             append_move(

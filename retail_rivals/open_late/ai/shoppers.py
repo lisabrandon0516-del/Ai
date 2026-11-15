@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import math
+import hashlib
 from pathlib import Path
 
 from open_late.ai.constants import CITIES, DEPARTMENTS, SEGMENTS
@@ -112,12 +113,29 @@ def _choice_key(
                 int(store.get("trust", 50)),
                 int(store.get("promo", 0)),
                 float(store.get("stockouts", 0)),
+                str(store.get("focus", "")),
                 float(habit.get(str(store.get("id", "")), 0.0)),
             )
             for store in stores
         )
     )
-    return (id(segments), int(income_index), rows)
+    weights = tuple(
+        sorted(
+            (
+                name,
+                tuple(
+                    sorted(
+                        (key, round(float(value), 6))
+                        for key, value in coef.items()
+                        if isinstance(value, (int, float))
+                    )
+                ),
+            )
+            for name, coef in segments.items()
+        )
+    )
+    digest = hashlib.blake2s(repr((rows, weights, int(income_index))).encode(), digest_size=8).hexdigest()
+    return (digest,)
 
 
 def choice_shares(

@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import hashlib
 
+from open_late.ai.context import WeekContext
 from open_late.ai.constants import (
     BIG_CALLS,
     DEPARTMENTS,
@@ -484,7 +485,14 @@ def choose_ceo_action(
     income_by_city: dict[str, int] | None = None,
     factors: dict[str, int] | None = None,
     opening_costs: dict[str, int] | None = None,
+    context: WeekContext | None = None,
 ) -> Action:
+    if context is not None:
+        factors = context.factors
+        opening_costs = context.opening_costs
+        market = context.market
+        segments = context.segments
+        income_by_city = context.income_by_city
     menu = ceo_menu(
         chain,
         week,
