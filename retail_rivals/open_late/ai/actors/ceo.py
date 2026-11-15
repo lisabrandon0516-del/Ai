@@ -13,6 +13,7 @@ import hashlib
 from open_late.ai.context import WeekContext
 from open_late.ai.constants import (
     BIG_CALLS,
+    CANNIBAL_MAX,
     DEPARTMENTS,
     PLAYER_TYPES,
     PRICE_INDEX_MAX,
@@ -23,7 +24,7 @@ from open_late.ai.constants import (
 )
 from open_late.ai.forecast import _effects, project_action
 from open_late.ai.legal import ceo_menu, clamp_price
-from open_late.ai.market import apply_chain_action, apply_player_reply, opened_store_id
+from open_late.ai.market import apply_chain_action, apply_player_reply, chain_sales, opened_store_id
 from open_late.ai.memory import belief_means, recent_kinds, sample_player_type
 from open_late.ai.models import Action, ActorMemory, ActorRef, BuildLoan, Personality, RivalChain, RivalStore
 from open_late.ai.reasons import ceo_reason
@@ -486,6 +487,28 @@ def _expectimax(
     return total / iters, base
 
 
+def _own_shift(market: list[dict], chain: RivalChain, city: str, segments: dict, income: dict) -> tuple[int, int]:
+    """Sales dollars the new door takes from this chain, and the new door's own sales."""
+    own = [row for row in market if row.get("city") == city and row.get("chain_id") == chain.chain_id]
+    if not own:
+        return 0, 1
+    new = {
+        "id": f"probe:{chain.chain_id}:{city}",
+        "city": city,
+        "owner": "rival",
+        "chain_id": chain.chain_id,
+        "price_index": chain.price_index,
+        "distance_band": 2,
+        "trust": 50,
+        "promo": 0,
+        "stockouts": 0,
+    }
+    before = chain_sales(market, chain.chain_id, segments, income, 0)
+    after = chain_sales(list(market) + [new], chain.chain_id, segments, income, 0)
+    stolen = sum(max(0, before.get(str(row["id"]), 0) - after.get(str(row["id"]), 0)) for row in own)
+    return stolen, int(after.get(new["id"], 0))
+
+
 def _last_store_failing(chain, personality, factors, visit_mult: int) -> bool:
     from open_late.ai.forecast import store_pnl
     from open_late.ai.legal import last_store_cannot_earn
@@ -560,7 +583,15 @@ def choose_ceo_action(
             factors=factors,
             shelf_index=personality.price_index,
         )
-        figures[city] = (pnl.cogs + pnl.opex, pnl.net)
+        incremental = pnl.net
+        if market and segments:
+            stolen, fresh = _own_shift(market, chain, city, segments, income_by_city or {})
+            cannibal = (stolen / fresh) if fresh else (1.0 if stolen else 0.0)
+            if cannibal > CANNIBAL_MAX:
+                incremental = min(incremental, 0)
+            elif pnl.sales > 0:
+                incremental = int(round(pnl.net * max(0, fresh - stolen) / pnl.sales))
+        figures[city] = (pnl.cogs + pnl.opex, incremental)
     menu = ceo_menu(
         chain,
         week,

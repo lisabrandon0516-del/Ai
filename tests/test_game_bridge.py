@@ -492,6 +492,69 @@ def test_a_bankrupt_chain_returns_after_the_lockout():
     del provider
 
 
+def test_city_pool_is_bounded():
+    from open_late.ai.market import card_units
+    from open_late.ai.shoppers import load_segments, visit_multipliers
+
+    segments = load_segments()
+
+    def city_sales(count: int) -> int:
+        stores = [
+            {
+                "id": f"s{index}",
+                "owner": "rival",
+                "price_index": 100,
+                "distance_band": 1,
+                "trust": 50,
+                "promo": 0,
+                "stockouts": 0,
+            }
+            for index in range(count)
+        ]
+        stores.append(
+            {"id": "online", "owner": "online", "price_index": 100, "distance_band": 2, "trust": 50, "promo": 0, "stockouts": 0}
+        )
+        mults = visit_multipliers(stores, segments)
+        return sum(card_units(mults[f"s{index}"], 0) for index in range(count))
+
+    one = city_sales(1)
+    five = city_sales(5)
+    assert five <= int(one * 1.25) + 1
+
+
+def test_cannibalization_blocks_a_second_door():
+    from open_late.ai.actors.ceo import _own_shift
+    from open_late.ai.shoppers import load_segments
+
+    chain = RivalChain(
+        chain_id="freshway",
+        personality_id="expander_v1",
+        price_index=98,
+        cash=20_000_000,
+        ebitda_trail=[300_000] * 8,
+        stores=[
+            RivalStore(id="store:freshway:houston:1", city="houston", opened_on=1, status="open", price_index=98)
+        ],
+    )
+    market = [
+        {
+            "id": "store:freshway:houston:1",
+            "city": "houston",
+            "owner": "rival",
+            "chain_id": "freshway",
+            "price_index": 98,
+            "distance_band": 1,
+            "trust": 50,
+            "promo": 0,
+            "stockouts": 0,
+        },
+        {"id": "online", "owner": "online", "city": "", "price_index": 100, "distance_band": 2, "trust": 50, "promo": 0, "stockouts": 0},
+    ]
+    stolen, fresh = _own_shift(market, chain, "houston", load_segments(), {"houston": 100})
+    assert fresh > 0
+    assert stolen / fresh > 0.40
+
+
 def test_entrant_constants():
     from open_late.ai.constants import ENTRANT_CASH, ENTRANT_CREDIT_LINE
 

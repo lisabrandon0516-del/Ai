@@ -12,7 +12,13 @@ import math
 import hashlib
 from pathlib import Path
 
-from open_late.ai.constants import CITIES, DEPARTMENTS, SEGMENTS
+from open_late.ai.constants import (
+    CITIES,
+    DEPARTMENTS,
+    MARKET_EXPANSION_CAP,
+    MARKET_EXPANSION_PER_DOOR,
+    SEGMENTS,
+)
 from open_late.ai.models import ShopperCard
 
 _DATA = Path(__file__).resolve().parent / "data" / "segments_v1.json"
@@ -91,6 +97,19 @@ def visit_multipliers(
         else:
             mult = int(round(1000 * full.get(sid, 0.0) / anchor))
         mults[sid] = max(0, min(5000, mult))
+    # A new door may grow the city, but it mostly splits the pool that is already there.
+    count = len(physical)
+    if count > 1:
+        solo_rows = [physical[0]] + [store for store in stores if store.get("id") == "online"]
+        one = sum(
+            visit_multipliers(solo_rows, segments, income_index=income_index, habit=habit).values()
+        ) or 1
+        cap = 1.0 + min(MARKET_EXPANSION_CAP, MARKET_EXPANSION_PER_DOOR * (count - 1))
+        total = sum(mults.values())
+        limit = one * cap
+        if total > limit and total > 0:
+            scale = limit / total
+            mults = {sid: max(0, int(round(value * scale))) for sid, value in mults.items()}
     return mults
 
 

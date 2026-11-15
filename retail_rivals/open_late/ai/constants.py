@@ -96,6 +96,9 @@ MIN_CASH_WEEKS = 4
 MIN_LIQUIDITY_WEEKS = 13
 ENTRANT_CASH = 15_000_000
 ENTRANT_CREDIT_LINE = 10_000_000
+MARKET_EXPANSION_PER_DOOR = 0.10
+MARKET_EXPANSION_CAP = 0.25
+CANNIBAL_MAX = 0.40
 
 # Fixed iteration counts. Never wall-clock. Calm searches less, stern more.
 # The counts stay under the Sunday budget (150 ms mean, 400 ms worst).

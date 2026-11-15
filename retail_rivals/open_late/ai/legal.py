@@ -170,13 +170,6 @@ def ceo_menu(
             allowed, loan = build_loan_terms(chain, cost, weekly_cost, incremental, ebitda_52)
             if not allowed:
                 continue
-            here = [
-                store
-                for store in chain.stores
-                if store.city == city and store.status in {"open", "building"}
-            ]
-            if len(here) >= 2:
-                continue
             rows.append(
                 Action(
                     actor=actor,
