@@ -48,6 +48,11 @@ from open_late.ai.snapshot import Snapshot
 
 _ARCHETYPE_BY_SLOT = ("price_leader", "premium", "expander")
 _GROWTH = {"price_leader": 35, "premium": 20, "expander": 80}
+# Naperville keeps the expander off Houston, so Houston and Las Vegas stay empty.
+# Those are the cheap doors a new loan can still cover. Expanders file first.
+_START_CITY = {"price_leader": "evansville", "premium": "seattle", "expander": "naperville"}
+# Premium files after the expander's second Sunday, then takes whatever cheap city is left.
+_FIRST_FILING = {"expander": 0, "premium": 9, "price_leader": 12}
 
 
 class RetailAI:
@@ -364,7 +369,7 @@ def _materialize(snap: Snapshot, state: AIState) -> None:
 def _build_chain(snap: Snapshot, state: AIState, chain_id: str, index: int) -> RivalChain:
     archetype = _ARCHETYPE_BY_SLOT[index % 3]
     person = next(item for item in state.personalities.values() if item.archetype == archetype)
-    city = CITIES[index % len(CITIES)]
+    city = _START_CITY.get(archetype, CITIES[index % len(CITIES)])
     store = RivalStore(
         id=f"store:{chain_id}:{city}:1",
         city=city,
@@ -375,6 +380,8 @@ def _build_chain(snap: Snapshot, state: AIState, chain_id: str, index: int) -> R
         focus_dept="grocery",
         price_index=person.price_index,
     )
+    # Stagger the first filing so the chains do not open on the same Sunday.
+    filing = _FIRST_FILING.get(archetype, index * 3)
     return RivalChain(
         chain_id=chain_id,
         personality_id=person.id,
@@ -384,8 +391,7 @@ def _build_chain(snap: Snapshot, state: AIState, chain_id: str, index: int) -> R
         credit_line=10_000_000,
         stores=[store],
         mandate=Mandate(growth_vs_profit=_GROWTH[archetype]),
-        # Stagger the first big call so chains do not open on the same Sunday.
-        cooldowns={"opening": snap.week + index * 3, "big_call": snap.week + index * 2},
+        cooldowns={"opening": snap.week + filing, "big_call": snap.week + filing},
     )
 
 
