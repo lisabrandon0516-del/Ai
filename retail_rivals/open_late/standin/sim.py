@@ -302,6 +302,8 @@ def _apply_one(snap: Snapshot, action: Action) -> ActionResult:
         for store in chain.stores:
             if store.city == city and store.status == "open":
                 store.focus_dept = dept
+                store.planogram_quality = max(int(store.planogram_quality), 70)
+                store.stockouts = 0
         return ActionResult(action=action, accepted=True, note="ok")
     if kind == "cut_costs" and chain is not None:
         chain.cost_cut_pct = int(action.args.get("pct", 1))

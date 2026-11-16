@@ -24,6 +24,8 @@ from open_late.ai.constants import (
     DEPT_COMMODITY,
     DIFFICULTIES,
     SUPPLIERS,
+    chain_logo,
+    chain_name,
     factor_key,
 )
 from open_late.ai.legal import clamp_price
@@ -77,6 +79,11 @@ class RetailAI:
         )
         _materialize(snap, state)
         _seed_prices(snap, state)
+        count = CHAIN_COUNTS[snap.difficulty]
+        snap.public["rivals"] = [
+            {"id": chain_id, "name": chain_name(chain_id), "logo": chain_logo(chain_id)}
+            for chain_id in roster[:count]
+        ]
         for supplier_id, _name, _dept in SUPPLIERS:
             if supplier_id == "labelco" and not snap.private_label:
                 continue
@@ -504,6 +511,9 @@ def _shopper_stores(snap: Snapshot, *, include_building: bool = False) -> list[d
                 "promo": int(row.get("promo", 0)),
                 "stockouts": int(row.get("stockouts", 0)),
                 "focus": str(row.get("focus", "grocery")),
+                "planogram": int(row.get("planogram", 50)),
+                "selection": int(row.get("selection", 50)),
+                "wait": int(row.get("wait", 0)),
             }
         )
     assert snap.ai is not None
@@ -524,8 +534,11 @@ def _shopper_stores(snap: Snapshot, *, include_building: bool = False) -> list[d
                     "distance_band": store.distance_band,
                     "trust": 50,
                     "promo": store.promo_depth,
-                    "stockouts": 0,
+                    "stockouts": int(store.stockouts),
                     "focus": store.focus_dept,
+                    "planogram": int(store.planogram_quality),
+                    "selection": 50 if int(store.planogram_quality) <= 50 else min(100, int(store.planogram_quality)),
+                    "wait": {"lean": 2, "normal": 0, "heavy": -1}.get(store.staffing, 0),
                 }
             )
     northline = snap.northline or {}

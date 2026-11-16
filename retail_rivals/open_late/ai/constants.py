@@ -27,6 +27,17 @@ CHAIN_NAMES: dict[str, str] = {
     "allinone": "All-in-One",
 }
 
+# Filenames from the game's chain logos. The AI does not load the pixels.
+CHAIN_LOGOS: dict[str, str] = {
+    "megamart": "megamart.png",
+    "valuemax": "valuemax.png",
+    "primestop": "primestop.png",
+    "everyday": "everyday.png",
+    "shopgiant": "shopgiant.png",
+    "bluestar": "bluestar.png",
+    "allinone": "allinone.png",
+}
+
 CITIES: tuple[str, ...] = (
     "evansville",
     "seattle",
@@ -84,8 +95,8 @@ ARCHETYPES: tuple[str, ...] = (
 
 DIFFICULTIES: tuple[str, ...] = ("off", "calm", "standard", "stern")
 
-# How many of the six unused chains act. Off runs nothing.
-CHAIN_COUNTS: dict[str, int] = {"off": 0, "calm": 2, "standard": 3, "stern": 4}
+# Three of the six chains the player did not pick. Off runs nothing.
+CHAIN_COUNTS: dict[str, int] = {"off": 0, "calm": 3, "standard": 3, "stern": 3}
 
 # The shop revolver uses the player's weekly credit rate. A building does not.
 # A build loan is at most 70% of cost, 8% a year, level principal over 20 years.
@@ -103,13 +114,6 @@ CANNIBAL_MAX = 0.40
 TOWN_DELAYS_PLAYER = False
 # Dirichlet evidence fades before each weekly update. 0.85 a week, floor 1.
 BELIEF_FORGET = 0.85
-
-# Fixed iteration counts. Never wall-clock. Calm searches less, stern more.
-# The counts stay under the Sunday budget (150 ms mean, 400 ms worst).
-SEARCH_ITERS: dict[str, int] = {"off": 0, "calm": 8, "standard": 12, "stern": 16}
-
-# Top myopic big-call candidates that receive expectimax, per chain per week.
-SEARCH_SHORTLIST = 3
 
 BIG_CALLS: frozenset[str] = frozenset(
     {"open_store", "close_store", "start_price_war", "raise_capital"}
@@ -238,6 +242,10 @@ BANNED_WORDS: tuple[str, ...] = (
 
 def chain_name(chain_id: str) -> str:
     return CHAIN_NAMES.get(chain_id, chain_id)
+
+
+def chain_logo(chain_id: str) -> str:
+    return CHAIN_LOGOS.get(chain_id, "megamart.png")
 
 
 def city_name(city: str) -> str:

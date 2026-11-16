@@ -119,7 +119,7 @@ def test_observation_hides_o3_and_player_cash():
 
 
 def test_chain_counts_follow_difficulty():
-    for difficulty, count in (("calm", 2), ("standard", 3), ("stern", 4)):
+    for difficulty, count in (("calm", 3), ("standard", 3), ("stern", 3)):
         snap, _provider = make_snapshot(2, difficulty=difficulty)
         assert snap.ai is not None
         assert len(snap.ai.chains) == count
@@ -349,38 +349,23 @@ def test_tie_break_and_softmax():
     assert left.kind == right.kind
 
 
-def test_search_uses_a_fixed_iteration_count(monkeypatch):
+def test_year_ahead_runs_once_per_city_per_week(monkeypatch):
+    from open_late.ai.actors.rules import city_forecast, clear_forecast_cache
+    from open_late.ai.forecast import year_ahead_profit
+
     calls = []
-    real = ai_rng
+    real = year_ahead_profit
 
     def wrapped(*args, **kwargs):
         calls.append(args)
         return real(*args, **kwargs)
 
-    monkeypatch.setattr("open_late.ai.actors.ceo.ai_rng", wrapped)
-    from open_late.ai.actors.ceo import _expectimax
-
-    people, _digest = load_personalities()
-    person = people["expander_v1"]
-    chain = RivalChain(chain_id="shopgiant", personality_id=person.id, price_index=98, cash=15_000_000)
-    action = Action(
-        actor=ActorRef(kind="ceo", id="ceo:shopgiant"),
-        kind="open_store",
-        args={"city": "houston", "site_band": 2, "cost": 6_000_000},
-    )
-    _expectimax(
-        action,
-        chain,
-        person,
-        ActorMemory(actor_id="ceo:shopgiant"),
-        seed=2,
-        week=1,
-        opening_cost=6_000_000,
-        visit_mult=1000,
-        iters=4,
-    )
-    assert len(calls) == 4
-    assert all(call[1] == "ai.search" for call in calls)
+    monkeypatch.setattr("open_late.ai.actors.rules.year_ahead_profit", wrapped)
+    clear_forecast_cache()
+    first = city_forecast("shopgiant", 1, "houston", 98, 80_000)
+    second = city_forecast("shopgiant", 1, "houston", 98, 80_000)
+    assert first == second
+    assert len(calls) == 1
 
 
 def test_gate_draws_cover_every_unused_chain(monkeypatch):
