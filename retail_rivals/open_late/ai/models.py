@@ -68,6 +68,9 @@ class RivalStore(BaseModel):
     staffing: str = "normal"
     promo_depth: int = 0
     promo_until_week: int = 0
+    # 50 is a neutral wall. Higher means more of the best department at eye level.
+    planogram_quality: int = 50
+    stockouts: int = 0
 
 
 class BuildLoan(BaseModel):
@@ -127,6 +130,8 @@ class ActorMemory(BaseModel):
     habit: dict[str, float] = Field(default_factory=dict)
     moves: list[dict[str, Any]] = Field(default_factory=list)
     counters: dict[str, int] = Field(default_factory=dict)
+    # City share in basis points, oldest first, four weeks at most.
+    share_trail: dict[str, list[int]] = Field(default_factory=dict)
 
     def belief_or_prior(self) -> dict[str, float]:
         if not self.belief:

@@ -6,7 +6,7 @@ import copy
 
 import pytest
 
-from open_late.ai.actors.ceo import _expectimax, _terms, _utility, choose_ceo_action, follow_up_actions
+from open_late.ai.actors.ceo import choose_ceo_action, follow_up_actions
 from open_late.ai.constants import PLAYER_TYPES
 from open_late.ai.forecast import project_action
 from open_late.ai.market import apply_player_reply
@@ -155,59 +155,14 @@ def test_price_cut_gains_share_against_the_city():
     assert cut.share_change_bps > 0
 
 
-def test_expectimax_answers_the_sampled_player_then_replies():
-    people, _digest = load_personalities()
-    person = people["premium_v1"].model_copy(deep=True)
-    person.weights = {name: 0.0 for name in person.weights}
-    person.weights["share_change"] = 6.0
-    person.weights["contribution_13w"] = 0.2
+def test_a_reply_is_still_available_after_the_weekly_rule():
+    """The weekly choice is a rule. A follow-up price move is still on the list."""
     chain = _chain()
     action = Action(
         actor=ActorRef(kind="ceo", id="ceo:bluestar"),
         kind="open_store",
         args={"city": "seattle", "site_band": 2, "cost": 6_000_000},
     )
-    fighter = ActorMemory(
-        actor_id="ceo:bluestar",
-        belief={name: (40.0 if name == "price_fighter" else 0.0) for name in PLAYER_TYPES},
-    )
-    passive = ActorMemory(
-        actor_id="ceo:bluestar",
-        belief={name: (40.0 if name == "passive" else 0.0) for name in PLAYER_TYPES},
-    )
-    kwargs = dict(
-        seed=2,
-        week=1,
-        opening_cost=6_000_000,
-        visit_mult=1000,
-        iters=4,
-        market=_market(),
-        segments=load_segments(),
-        income_by_city={"houston": 100, "seattle": 100},
-    )
-    fighter_value, _fighter_terms = _expectimax(action, chain, person, fighter, **kwargs)
-    passive_value, _passive_terms = _expectimax(action, chain, person, passive, **kwargs)
-    assert fighter_value != pytest.approx(passive_value)
-
-    means = belief_means(passive.belief)
-    assert means["passive"] == pytest.approx(1.0)
-    one_step_terms = _terms(
-        action,
-        chain,
-        person,
-        passive,
-        week=1,
-        opening_cost=6_000_000,
-        visit_mult=1000,
-        shock_bps=0,
-        market=_market(),
-        segments=load_segments(),
-        income_by_city={"houston": 100, "seattle": 100},
-        player_type="passive",
-    )
-    # The reply is priced on its own. When that reply gives up profit, it does
-    # not outrank the door, and the caller keeps the door's own year.
-    assert _utility(one_step_terms, person.weights) + 1e-9 >= passive_value
     assert any(follow.kind == "set_chain_price_index" for follow in follow_up_actions(chain, action))
 
 
@@ -303,26 +258,27 @@ def test_a_fighter_belief_changes_the_weekly_choice():
     # back toward it. The belief still changes what a deep cut is worth.
     assert fighter.kind == "set_chain_price_index" and int(fighter.args["delta"]) > 0
     assert quiet.kind == "set_chain_price_index" and int(quiet.args["delta"]) > 0
-    from open_late.ai.actors.ceo import _terms
-    from open_late.ai.models import Action, ActorRef
+    from open_late.ai.forecast import project_action
 
-    # A cut below the shelf earns no share against either belief. It still
-    # costs a different amount of profit once the player's reply is priced in.
-    cut = Action(actor=ActorRef(kind="ceo", id="ceo:bluestar"), kind="set_chain_price_index", args={"delta": -6})
-    kwargs = dict(
-        week=3,
+    # A cut below the shelf still prices differently once the player's reply is in.
+    common_cut = dict(
+        gross_margin_bps=person.gross_margin_bps,
+        opex_bps=person.opex_bps,
+        kind="set_chain_price_index",
+        args={"delta": -6},
         opening_cost=6_000_000,
         visit_mult=1000,
         shock_bps=0,
         market=market,
         segments=load_segments(),
         income_by_city={"houston": 100},
+        shelf_index=person.price_index,
     )
-    fighter_cut = _terms(cut, chain, person, ActorMemory(actor_id="ceo:bluestar"), player_type="price_fighter", **kwargs)
-    quiet_cut = _terms(cut, chain, person, ActorMemory(actor_id="ceo:bluestar"), player_type="passive", **kwargs)
-    assert fighter_cut["share_change"] == 0
-    assert quiet_cut["share_change"] == 0
-    assert fighter_cut["contribution_13w"] > quiet_cut["contribution_13w"]
+    fighter_cut = project_action(chain, player_type="price_fighter", **common_cut)
+    quiet_cut = project_action(chain, player_type="passive", **common_cut)
+    assert fighter_cut.share_change_bps == 0
+    assert quiet_cut.share_change_bps == 0
+    assert fighter_cut.contribution > quiet_cut.contribution
 
 
 def test_supplied_weights_change_the_stand_in():

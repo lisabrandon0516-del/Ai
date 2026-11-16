@@ -730,7 +730,7 @@ def test_occupied_city_is_not_banned(monkeypatch):
         seen.extend(pairs)
         return argmax(pairs)
 
-    monkeypatch.setattr("open_late.ai.actors.ceo.argmax", _record)
+    monkeypatch.setattr("open_late.ai.actors.rules.argmax", _record)
     choose_ceo_action(
         chain,
         person,

@@ -31,6 +31,15 @@ def _discounted_weeks(weekly: int, *, start: int, weeks: int, annual: float = 0.
     return int(round(weekly * annuity * (1.0 + rate) ** (-max(0, start))))
 
 
+def year_ahead_profit(weekly: int, *, delay_weeks: int = 4) -> int:
+    """Present value of 52 weeks of profit after a permit delay, at 8% a year.
+
+    This is the only year-ahead number the weekly rules ask for, and only for
+    a city they might open or a door they might close.
+    """
+    return _discounted_weeks(weekly, start=max(0, delay_weeks), weeks=52)
+
+
 def _elasticity_units(price_index: int) -> float:
     ratio = max(1, price_index) / 100.0
     return ratio ** (-2.62)

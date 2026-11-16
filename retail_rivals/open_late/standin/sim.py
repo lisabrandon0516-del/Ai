@@ -302,6 +302,8 @@ def _apply_one(snap: Snapshot, action: Action) -> ActionResult:
         for store in chain.stores:
             if store.city == city and store.status == "open":
                 store.focus_dept = dept
+                store.planogram_quality = max(int(store.planogram_quality), 70)
+                store.stockouts = 0
         return ActionResult(action=action, accepted=True, note="ok")
     if kind == "cut_costs" and chain is not None:
         chain.cost_cut_pct = int(action.args.get("pct", 1))
@@ -354,6 +356,14 @@ def _apply_one(snap: Snapshot, action: Action) -> ActionResult:
         return ActionResult(action=action, accepted=True, note="ok")
     if kind == "replace_ceo" and chain is not None:
         chain.personality_id = str(action.args.get("personality_id", chain.personality_id))
+        # The new shelf is the price the margin math uses. Leaving the old ticket
+        # in place books every store as a discount and the chain sinks.
+        person = snap.ai.personalities.get(chain.personality_id) if snap.ai is not None else None
+        if person is not None and chain.price_index < person.price_index:
+            chain.price_index = person.price_index
+            for store in chain.stores:
+                if store.price_index < person.price_index:
+                    store.price_index = person.price_index
         return ActionResult(action=action, accepted=True, note="ok")
     if kind == "declare_distress" and chain is not None:
         chain.status = "distressed"

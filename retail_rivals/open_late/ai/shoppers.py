@@ -62,6 +62,13 @@ def store_utility(coef: dict, store: dict, habit: float) -> float:
         + float(coef["b_stockout"]) * float(store.get("stockouts", 0))
         + float(coef["b_habit"]) * habit
     )
+    # Neutral defaults add nothing, so a store with no wall score shops as before.
+    # The same terms apply to the player and to a rival.
+    planogram = int(store.get("planogram", 50))
+    selection = int(store.get("selection", 50))
+    utility += float(coef.get("b_planogram", 0.12)) * ((planogram - 50) / 50.0)
+    utility += float(coef.get("b_selection", 0.10)) * ((selection - 50) / 50.0)
+    utility += float(coef.get("b_wait", -0.25)) * float(store.get("wait", 0))
     if store.get("id") == "online":
         utility += float(coef.get("b_online", 0.0))
     return utility
@@ -170,6 +177,9 @@ def _choice_key(
                 int(store.get("promo", 0)),
                 float(store.get("stockouts", 0)),
                 str(store.get("focus", "")),
+                int(store.get("planogram", 50)),
+                int(store.get("selection", 50)),
+                int(store.get("wait", 0)),
                 float(habit.get(str(store.get("id", "")), 0.0)),
             )
             for store in stores
@@ -275,6 +285,19 @@ def _dept_mult(store: dict, segments: dict[str, dict], income: int) -> dict[str,
             pref += mix[name] * float(segments[name].get("depts", {}).get(dept, 1.0))
         if dept == focus:
             pref *= 1.2
+        # Eye-level facings and the next category over. A neutral wall (50) changes nothing.
+        quality = int(store.get("planogram", 50))
+        if quality != 50 and focus in DEPARTMENTS:
+            index = DEPARTMENTS.index(focus)
+            neighbors = {focus}
+            if index > 0:
+                neighbors.add(DEPARTMENTS[index - 1])
+            if index + 1 < len(DEPARTMENTS):
+                neighbors.add(DEPARTMENTS[index + 1])
+            if dept == focus:
+                pref *= 1.0 + (quality - 50) / 200.0
+            elif dept in neighbors:
+                pref *= 1.05
         raw[dept] = pref
     mean = sum(raw.values()) / len(DEPARTMENTS)
     mean = mean or 1.0
